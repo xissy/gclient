@@ -1,0 +1,3 @@
+deps = {
+  "pymox" : "http://pymox.googlecode.com/svn/trunk",
+}
