@@ -462,7 +462,9 @@ class FromImpl:
   def __str__(self):
     return 'From("%s")' % self.module_name
 
-def GetDefaultSolutionDeps(client, solution_name):
+def GetDefaultSolutionDeps(client, solution_name, platform=None,
+                           _execfile=execfile,
+                           _Logger=sys.stdout):
   """Fetches the DEPS file for the specified solution.
 
   Args:
@@ -474,22 +476,29 @@ def GetDefaultSolutionDeps(client, solution_name):
     dict if the solution does not have a DEPS file.
   """
   deps_file = os.path.join(client["root_dir"], solution_name, DEPS_FILE)
-  if not os.path.exists(deps_file):
-    print "\nWARNING: DEPS file not found for solution: %s\n" % solution_name
-    return {}
   scope = { "From": FromImpl, "deps_os": {} }
-  execfile(deps_file, scope)
+  try:
+    _execfile(deps_file, scope)
+  except EnvironmentError:
+    print >> _Logger, "\nWARNING: DEPS file not found for solution: %s\n" % solution_name
+    return {}
   deps = scope["deps"]
   # load os specific dependencies if defined.  these dependencies may override
   # or extend the values defined by the 'deps' member.
+  if platform is None:
+    platform = sys.platform
   deps_os_key = {
-    'win32': 'win',
+    'win32' : 'win',
+    'win'   : 'win',
     'darwin': 'mac',
-  }.get(sys.platform, 'unix')
+    'mac'   : 'mac',
+    'unix'  : 'unix',
+  }.get(platform, 'unix')
   deps.update(scope["deps_os"].get(deps_os_key, {}))
   return deps
 
-def GetAllDeps(client, solution_urls):
+def GetAllDeps(client, solution_urls,
+               _GetDefaultSolutionDeps=GetDefaultSolutionDeps):
   """Get the complete list of dependencies for the client.
 
   Args:
@@ -507,7 +516,7 @@ def GetAllDeps(client, solution_urls):
   """
   deps = {}
   for solution in client["solutions"]:
-    solution_deps = GetDefaultSolutionDeps(client, solution["name"])
+    solution_deps = _GetDefaultSolutionDeps(client, solution["name"])
     for d in solution_deps:
       if "custom_deps" in solution and d in solution["custom_deps"]:
         url = solution["custom_deps"][d]

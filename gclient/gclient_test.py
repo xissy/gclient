@@ -916,5 +916,226 @@ class TestDispatchCommand(GclientTestCase):
     self.mox.VerifyAll()
 
 
+class TestGetDefaultSolutionDeps(GclientTestCase):
+  def setUp(self):
+    self.mox = mox.Mox()
+    self.gclient = self.mox.CreateMock(gclient)
+    self.stdout = self.mox.CreateMock(sys.stdout)
+
+    # Have to monkey-patch execfile since it's a built-in
+    # and pymox can't handle that.
+    import __builtin__
+    self.save_execfile = __builtin__.execfile
+
+    self.GetDefaultSolutionDeps = (
+        lambda client, solution_name, platform=None,
+               _execfile=self.save_execfile:
+               gclient.GetDefaultSolutionDeps(client, solution_name, platform,
+                                              _execfile=_execfile,
+                                              _Logger=self.stdout))
+
+  def tearDown(self):
+    import __builtin__
+    __builtin__.execfile = self.save_execfile
+
+  def testNoDEPSFile(self):
+    client = {'root_dir' : '/my/dir'}
+
+    def my_execfile(fname, scope):
+      raise IOError, "No such file or directory: %s" % repr(fname)
+
+    print >>self.stdout, '\nWARNING: DEPS file not found for solution: my_solution\n'
+    self.mox.ReplayAll()
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         _execfile=my_execfile)
+    self.mox.VerifyAll()
+    self.assertEqual(result, {})
+
+  def testSimpleDEPSFile(self):
+    client = {'root_dir' : '/my/dir'}
+
+    deps = {'component1' : 'http:/url1',
+            'component2' : 'http:/url2'}
+
+    def my_execfile(fname, scope):
+      self.my_execfile_fname = fname
+      scope.update({'deps' : deps})
+
+    self.mox.ReplayAll()
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         _execfile=my_execfile)
+    self.mox.VerifyAll()
+    self.assertEqual(result, deps)
+
+  def testDeps_os(self):
+    client = {'root_dir' : '/my/dir'}
+
+    deps = {'component1' : 'http:/url1'}
+    deps_os = {'win'     : {'component2' : 'http:/url2'},
+               'mac'     : {'component3' : 'http:/url3'},
+               'unix'    : {'component4' : 'http:/url4'},
+              }
+
+    def my_execfile(fname, scope):
+      self.my_execfile_fname = fname
+      scope.update({'deps' : deps.copy(), 'deps_os' : deps_os.copy()})
+
+    self.mox.ReplayAll()
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='win',
+                                         _execfile=my_execfile)
+    self.mox.VerifyAll()
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component2' : 'http:/url2',})
+
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='win32',
+                                         _execfile=my_execfile)
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component2' : 'http:/url2',})
+
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='mac',
+                                         _execfile=my_execfile)
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component3' : 'http:/url3',})
+
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='darwin',
+                                         _execfile=my_execfile)
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component3' : 'http:/url3',})
+
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='unix',
+                                         _execfile=my_execfile)
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component4' : 'http:/url4',})
+
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='linux2',
+                                         _execfile=my_execfile)
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component4' : 'http:/url4',})
+
+    result = self.GetDefaultSolutionDeps(client, "my_solution",
+                                         platform='unrecognized',
+                                         _execfile=my_execfile)
+    self.assertEqual(result, {'component1' : 'http:/url1',
+                              'component4' : 'http:/url4',})
+
+
+class TestGetAllDeps(GclientTestCase):
+  def setUp(self):
+    self.mox = mox.Mox()
+    self.gclient = self.mox.CreateMock(gclient)
+    self.GetAllDeps = (
+        lambda client, solution_urls: gclient.GetAllDeps(client, solution_urls,
+               _GetDefaultSolutionDeps=self.gclient.GetDefaultSolutionDeps))
+
+  def testEmptyDeps(self):
+    solutions = [{'name': 'solution1',
+                  'url': 'http://solution1'},
+                 {'name': 'solution2',
+                  'url': 'http://solution2'},
+                ]
+    client = {'solutions': solutions}
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn({})
+    self.gclient.GetDefaultSolutionDeps(client, 'solution2').AndReturn({})
+    self.mox.ReplayAll()
+    result = self.GetAllDeps(client, {})
+    self.mox.VerifyAll()
+    self.assertEqual(result, {})
+
+  def testActualDeps(self):
+    solutions = [{'name': 'solution1',
+                  'url': 'http://solution1'},
+                 {'name': 'solution2',
+                  'url': 'http://solution2'},
+                ]
+    client = {'solutions': solutions}
+
+    deps1 = {'dep1a' : 'http://url1a', 'dep1b' : 'http://url1b'}
+    deps2 = {'dep2a' : 'http://url2a', 'dep2b' : 'http://url2b'}
+
+    expected_result = {}
+    expected_result.update(deps1)
+    expected_result.update(deps2)
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
+    self.gclient.GetDefaultSolutionDeps(client, 'solution2').AndReturn(deps2)
+    self.mox.ReplayAll()
+    result = self.GetAllDeps(client, {})
+    self.mox.VerifyAll()
+    self.assertEqual(result, expected_result)
+
+  def testCustomDeps(self):
+    solutions = [{'name': 'solution1',
+                  'url': 'http://solution1',
+                  'custom_deps': {'dep1a' : 'http://custom_dep_1a'},
+                 },
+                 {'name': 'solution2',
+                  'url': 'http://solution2',
+                  'custom_deps': {'dep2a' : None,
+                                  'dep2b' : 'http://custom_dep_2b'},
+                 },
+                ]
+    client = {'solutions': solutions}
+
+    deps1 = {'dep1a' : 'http://url1a', 'dep1b' : 'http://url1b'}
+    deps2 = {'dep2a' : 'http://url2a', 'dep2b' : 'http://url2b'}
+
+    expected_result = {
+        'dep1a' : 'http://custom_dep_1a',
+        'dep1b' : 'http://url1b',
+        'dep2b' : 'http://custom_dep_2b',
+    }
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
+    self.gclient.GetDefaultSolutionDeps(client, 'solution2').AndReturn(deps2)
+    self.mox.ReplayAll()
+    result = self.GetAllDeps(client, {})
+    self.mox.VerifyAll()
+    self.assertEqual(result, expected_result)
+
+  def testConflictingSolutions(self):
+    solutions = [{'name': 'solution1',
+                  'url': 'http://solution1',
+                 },
+                 {'name': 'solution2',
+                  'url': 'http://solution2',
+                 },
+                ]
+    client = {'solutions': solutions}
+
+    deps1 = {'conflict' : 'http://url1'}
+    deps2 = {'conflict' : 'http://url2'}
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
+    self.gclient.GetDefaultSolutionDeps(client, 'solution2').AndReturn(deps2)
+    self.mox.ReplayAll()
+    self.assertRaisesError(
+        "solutions have conflicting versions of dependency \"conflict\"",
+        self.GetAllDeps, client, {})
+    self.mox.VerifyAll()
+
+  def testConflictingSpecified(self):
+    solutions = [{'name': 'solution1',
+                  'url': 'http://solution1',
+                 },
+                ]
+    client = {'solutions': solutions}
+
+    deps1 = {'conflict' : 'http://url1'}
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
+    self.mox.ReplayAll()
+    self.assertRaisesError(
+        "dependency \"conflict\" conflicts with specified solution",
+        self.GetAllDeps, client, {'conflict' : 'http://url2'})
+    self.mox.VerifyAll()
+
+
 if __name__ == '__main__':
   unittest.main()
