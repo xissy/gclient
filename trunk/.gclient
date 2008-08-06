@@ -5,7 +5,7 @@
 solutions = [
   {
     "name"        : "gclient",
-    "url"         : "http://gclient.googlecode.com/svn/trunk",
+    "url"         : "https://gclient.googlecode.com/svn/trunk/gclient",
     "custom_deps" : {},
   },
 ]
