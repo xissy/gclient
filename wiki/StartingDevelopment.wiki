@@ -1,0 +1,34 @@
+#summary Getting started with development of gclient.
+
+= Initial checkout = 
+
+`gclient` uses itself to fetch the [http://code.google.com/p/pymox/ mox] object-mocking modules, which it uses in its unit tests.  Here's how you get started:
+
+{{{
+  $ svn co https://gclient.googlecode.com/svn/trunk gclient-dev
+  $ cd gclient-dev
+  $ python gclient/gclient.py update
+}}}
+
+This will create `gclient` and `pymox` directories in the `gclient-dev` directory.  (Of course, you can name the `gclient-dev` directory anything you want.)
+
+If you already have `gclient` installed (and kinda know what you're doing), you can also use the `gclient config` subcommand to bootstrap yourself (presumably in an empty directory like `gclient-dev`):
+
+{{{
+  $ gclient config https://gclient.googlecode.com/svn/trunk/gclient
+  $ gclient update
+}}}
+
+= Running the unit tests =
+
+The unit tests are all in the `gclient_test.py` script, which you just feed to `python`:
+
+{{{
+  $ python gclient_test.py
+}}}
+
+The unit tests should also work fine when executed from other directories.
+
+= Submitting changes =
+
+The standard `svn commit` if you have commit rights.  (Feel free to ask.)  If not, send email to the maintainers.
