@@ -319,8 +319,9 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
 
         if not options.relocate:
           print >>output_stream, ("Skipping update to %s;\n"
-                                  "\tuse the --relocate option to switch from %s\n"
-                                  "\tto %s.\n"
+                                  "\tuse the --relocate option to switch\n"
+                                  "\tfrom %s\n"
+                                  "\tto   %s.\n"
                                   % (svnurl, from_url, comps[0]))
           return
 
