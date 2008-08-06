@@ -575,8 +575,9 @@ class TestUpdateToURL(GclientTestCase):
            }
 
     expected_message = ("Skipping update to %s;\n"
-                        "\tuse the --relocate option to switch from %s\n"
-                        "\tto %s.\n"
+                        "\tuse the --relocate option to switch\n"
+                        "\tfrom %s\n"
+                        "\tto   %s.\n"
                         % (url_rev, self.url, url))
 
     self.os_path.exists(self.rootpath).AndReturn(True)
