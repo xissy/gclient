@@ -99,7 +99,7 @@ class TestRunSVN(GclientTestCase):
 
   def testBasic(self):
     self.subprocess.call([gclient.SVN_COMMAND] + list(self.args),
-                         cwd=self.dir).AndReturn(0)
+                         cwd=self.dir, shell=True).AndReturn(0)
 
     self.mox.ReplayAll()
     self.RunSVN(self.args, self.dir)
@@ -108,7 +108,7 @@ class TestRunSVN(GclientTestCase):
   def testRaiseOnError(self):
     exception_msg = 'failed to run command: '
     self.subprocess.call([gclient.SVN_COMMAND] + list(self.args),
-                         cwd=self.dir).AndReturn(1)
+                         cwd=self.dir, shell=True).AndReturn(1)
 
     self.mox.ReplayAll()
     self.assertRaisesError(exception_msg + ' '.join(['svn'] + self.args),

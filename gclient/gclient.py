@@ -208,7 +208,7 @@ def RunSVN(args, in_directory,
   print >> output_stream, '\n________ running \'%s\' in \'%s\'' % (' '.join(c),
                                                  realpath(in_directory))
   output_stream.flush()  # flush our stdout so it shows up first.
-  rv = subprocess.call(c, cwd=in_directory)
+  rv = subprocess.call(c, cwd=in_directory, shell=True)
   if rv != 0:
     raise Error("failed to run command: %s" % " ".join(c))
 
@@ -229,7 +229,7 @@ def CaptureSVN(args, in_directory, verbose):
     print ('\n________ running \'%s\' in \'%s\''
            % (' '.join(c), os.path.realpath(in_directory)))
     sys.stdout.flush()  # flush our stdout so it shows up first.
-  return subprocess.Popen(c, cwd=in_directory,
+  return subprocess.Popen(c, cwd=in_directory, shell=True,
                           stdout=subprocess.PIPE).communicate()[0]
 
 def CaptureSVNInfo(relpath, in_directory, verbose):
