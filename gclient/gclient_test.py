@@ -1031,7 +1031,8 @@ class TestGetAllDeps(GclientTestCase):
     self.gclient = self.mox.CreateMock(gclient)
     self.GetAllDeps = (
         lambda client, solution_urls: gclient.GetAllDeps(client, solution_urls,
-               _GetDefaultSolutionDeps=self.gclient.GetDefaultSolutionDeps))
+               _GetDefaultSolutionDeps=self.gclient.GetDefaultSolutionDeps,
+               _CaptureSVNInfo=self.gclient.CaptureSVNInfo))
 
   def testEmptyDeps(self):
     solutions = [{'name': 'solution1',
@@ -1098,6 +1099,40 @@ class TestGetAllDeps(GclientTestCase):
     result = self.GetAllDeps(client, {})
     self.mox.VerifyAll()
     self.assertEqual(result, expected_result)
+
+  def testRelativeDeps(self):
+    root_url = 'http://url1'
+    solutions = [{'name': 'solution1',
+                  'url': root_url + '/solution1'}]
+    client = {'solutions': solutions,
+              'root_dir' : RootDir()}
+    deps = {'component1': 'http://an/absolute/url/path',
+            'component2': '/a/relative/path'}
+    svn_info = { 'Repository Root' : root_url, }
+
+    expected_result = deps.copy()
+    expected_result['component2'] = root_url + deps['component2']
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps)
+    self.gclient.CaptureSVNInfo('http://url1/solution1', client['root_dir'],
+                                False).AndReturn(svn_info)
+    self.mox.ReplayAll()
+    result = self.GetAllDeps(client, {})
+    self.mox.VerifyAll()
+    self.assertEqual(result, expected_result)
+
+  def testRelativeDepsError(self):
+    solutions = [{'name': 'solution1',
+                  'url': '/http://url1/solution1'}]
+    client = {'solutions': solutions}
+    deps = {'component1': 'a/bad/relative/path'}
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps)
+    self.mox.ReplayAll()
+    self.assertRaisesError(
+        "relative DEPS entry \"component1\" must begin with a slash",
+        self.GetAllDeps, client, {})
+    self.mox.VerifyAll()
 
   def testConflictingSolutions(self):
     solutions = [{'name': 'solution1',

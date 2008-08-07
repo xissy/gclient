@@ -43,6 +43,7 @@ import optparse
 import os
 import subprocess
 import sys
+import urlparse
 
 SVN_COMMAND = "svn"
 CLIENT_FILE = os.environ.get("GCLIENT_FILE", ".gclient")
@@ -498,7 +499,8 @@ def GetDefaultSolutionDeps(client, solution_name, platform=None,
   return deps
 
 def GetAllDeps(client, solution_urls,
-               _GetDefaultSolutionDeps=GetDefaultSolutionDeps):
+               _GetDefaultSolutionDeps=GetDefaultSolutionDeps,
+               _CaptureSVNInfo=CaptureSVNInfo):
   """Get the complete list of dependencies for the client.
 
   Args:
@@ -538,6 +540,13 @@ def GetAllDeps(client, solution_urls,
           if d in deps and type(deps[d]) != str:
             if url.module_name == deps[d].module_name:
               continue
+        scheme, location, path = urlparse.urlparse(url)[:3]
+        if not scheme:
+          if path[0] != '/':
+            raise Error(
+              "relative DEPS entry \"%s\" must begin with a slash" % d)
+          info = _CaptureSVNInfo(solution["url"], client["root_dir"], False)
+          url = info["Repository Root"] + url
       if d in deps and deps[d] != url:
         raise Error(
           "solutions have conflicting versions of dependency \"%s\"" % d)
