@@ -1,24 +1,20 @@
 #!/usr/bin/python
 #
-# Copyright 2007, Google Inc.
+# Copyright 2008 Google Inc.  All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #      http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__author__ = 'darinf@gmail.com (Darin Fisher)'
-
-"""
-gclient, a wrapper script to manage a set of client modules in svn
-(and other SCM systems, eventually).
+"""A wrapper script to manage a set of client modules in (initially) svn.
 
 This script is intended to be used to help basic management of client
 program sources residing in one or more Subversion modules, along with
@@ -39,6 +35,8 @@ Files
                   submodule name to a URL where it can be found (via svn)
 """
 
+__author__ = "darinf@gmail.com (Darin Fisher)"
+
 import optparse
 import os
 import subprocess
@@ -52,7 +50,7 @@ DEPS_FILE = "DEPS"
 
 # default help text
 DEFAULT_USAGE_TEXT = (
-"""usage: %prog <subcommand> [options] [--] [svn options/args...]
+    """usage: %prog <subcommand> [options] [--] [svn options/args...]
 a wrapper for managing a set of client modules in svn.
 
 subcommands:
@@ -73,7 +71,7 @@ For additional help on a subcommand or examples of usage, try
 """)
 
 GENERIC_UPDATE_USAGE_TEXT = (
-"""Perform a checkout/update of the modules specified by the gclient
+    """Perform a checkout/update of the modules specified by the gclient
 configuration; see 'help config'.  Unless --revision is specified,
 then the latest revision of the root solutions is checked out, with
 dependent submodule versions updated according to DEPS files.
@@ -102,7 +100,7 @@ Examples:
 """)
 
 COMMAND_USAGE_TEXT = {
-"config": """Create a .gclient file in the current directory; this
+    "config": """Create a .gclient file in the current directory; this
 specifies the configuration for further commands.  After update/sync,
 top-level DEPS files in each module are read to determine dependent
 modules to operate on as well.  If optional [svnurl] parameter is
@@ -120,9 +118,9 @@ Examples:
   gclient config https://gclient.googlecode.com/svn/trunk/gclient
       configure a new client to check out gclient.py tool sources
   gclient config --spec='solutions=[{"name":"gclient","""
-""""url":"https://gclient.googlecode.com/svn/trunk/gclient","custom_deps":{}}]'
-""",
-"diff": """Display the differences between two revisions of modules.
+    '"url":"https://gclient.googlecode.com/svn/trunk/gclient",'
+    '"custom_deps":{}}]',
+    "diff": """Display the differences between two revisions of modules.
 (Does 'svn diff' for each checked out module and dependences.)
 Additional args and options to 'svn diff' can be passed after
 gclient options.
@@ -140,7 +138,8 @@ Examples:
   gclient diff -- -r HEAD -x -b
       diff versus the latest version of each module
 """,
-"status" : """Show the status of client and dependent modules, using 'svn diff'
+    "status":
+    """Show the status of client and dependent modules, using 'svn diff'
 for each module.  Additional options and args may be passed to 'svn diff'.
 
 usage: status [options] [--] [svn diff args/options]
@@ -148,9 +147,9 @@ usage: status [options] [--] [svn diff args/options]
 Valid options:
   --verbose           : output additional diagnostics
 """,
-"sync": GENERIC_UPDATE_USAGE_TEXT % {'cmd':'sync', 'alias':'update'},
-"update": GENERIC_UPDATE_USAGE_TEXT % {'cmd':'update', 'alias':'sync'},
-"help": """Describe the usage of this program or its subcommands.
+    "sync": GENERIC_UPDATE_USAGE_TEXT % {"cmd": "sync", "alias": "update"},
+    "update": GENERIC_UPDATE_USAGE_TEXT % {"cmd": "update", "alias": "sync"},
+    "help": """Describe the usage of this program or its subcommands.
 
 usage: help [options] [subcommand]
 
@@ -161,7 +160,7 @@ Valid options:
 
 # parameterized by (solution_name, solution_svnurl)
 DEFAULT_CLIENT_FILE_TEXT = (
-"""
+    """
 # An element of this array (a \"solution\") describes a repository directory
 # that will be checked out into your working copy.  Each solution may
 # optionally define additional dependencies (via its DEPS file) to be
@@ -184,37 +183,49 @@ solutions = [
 # -----------------------------------------------------------------------------
 # generic utils:
 
+
 class Error(Exception):
+  """gclient exception class."""
+
   def __init__(self, message):
+    Exception.__init__(self)
     self.message = message
 
 # -----------------------------------------------------------------------------
 # SVN utils:
 
+
 def RunSVN(args, in_directory,
            output_stream=sys.stdout,
-           subprocess=subprocess,
+           call=subprocess.call,
            realpath=os.path.realpath):
-  """Runs svn, sending output to stdout
+  """Runs svn, sending output to stdout.
 
   Args:
     args: A sequence of command line parameters to be passed to svn.
     in_directory: The directory where svn is to be run.
+
+    Dependencies (for testing)
+    output_stream: stream for messages to the user
+    call: "subprocess.call" function
+    realpath: "os.path.realpath" function
 
   Raises:
     Error: An error occurred while running the svn command.
   """
   c = [SVN_COMMAND]
   c.extend(args)
-  print >> output_stream, '\n________ running \'%s\' in \'%s\'' % (' '.join(c),
-                                                 realpath(in_directory))
+  print >> output_stream, (
+      "\n________ running \'%s\' in \'%s\'" % (" ".join(c),
+                                               realpath(in_directory)))
   output_stream.flush()  # flush our stdout so it shows up first.
-  rv = subprocess.call(c, cwd=in_directory, shell=True)
-  if rv != 0:
+  rv = call(c, cwd=in_directory, shell=True)
+  if rv:
     raise Error("failed to run command: %s" % " ".join(c))
 
+
 def CaptureSVN(args, in_directory, verbose):
-  """Runs svn, capturing output sent to stdout as a string
+  """Runs svn, capturing output sent to stdout as a string.
 
   Args:
     args: A sequence of command line parameters to be passed to svn.
@@ -226,15 +237,16 @@ def CaptureSVN(args, in_directory, verbose):
   """
   c = [SVN_COMMAND]
   c.extend(args)
-  if (verbose):
-    print ('\n________ running \'%s\' in \'%s\''
-           % (' '.join(c), os.path.realpath(in_directory)))
+  if verbose:
+    print ("\n________ running \'%s\' in \'%s\'"
+           % (" ".join(c), os.path.realpath(in_directory)))
     sys.stdout.flush()  # flush our stdout so it shows up first.
   return subprocess.Popen(c, cwd=in_directory, shell=True,
                           stdout=subprocess.PIPE).communicate()[0]
 
+
 def CaptureSVNInfo(relpath, in_directory, verbose):
-  """Runs 'svn info' on an existing path
+  """Runs 'svn info' on an existing path.
 
   Args:
     relpath: The directory where the working copy resides relative to
@@ -253,9 +265,9 @@ def CaptureSVNInfo(relpath, in_directory, verbose):
       result[fields[0]] = fields[1]
   return result
 
+
 def RunSVNCommandForModule(command, relpath, root_dir, args):
-  """Runs an svn command for a single subversion module checked out in
-     the specified directory (relpath/root_dir).
+  """Runs an svn command for a single subversion module.
 
   Args:
     command: The svn command to use (e.g., "status" or "diff")
@@ -268,11 +280,12 @@ def RunSVNCommandForModule(command, relpath, root_dir, args):
   c.extend(args)
   RunSVN(c, os.path.join(root_dir, relpath))
 
+
 def UpdateToURL(relpath, svnurl, root_dir, options, args,
                 output_stream=sys.stdout,
-                _PathExists=os.path.exists,
-                _CaptureSVNInfo=CaptureSVNInfo,
-                _RunSVN=RunSVN):
+                path_exists=os.path.exists,
+                capture_svn_info=CaptureSVNInfo,
+                run_svn=RunSVN):
   """Runs svn to checkout or update the working copy.
 
   Args:
@@ -281,16 +294,24 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
     svnurl: The svn URL to checkout or update the relpath to.
     root_dir: The directory from which relpath is relative.
     options: The Options object; attributes we care about:
-      verbose: If true, then print diagnostic output.
-      force: If true, also update modules with unchanged repository version.
+      verbose - If true, then print diagnostic output.
+      force - If true, also update modules with unchanged repository version.
     args: list of str - extra arguments to add to the svn command line.
+
+    output_stream: stream for user messages
+    path_exists: os.path.exists (for testing)
+    capture_svn_info: CaptureSVNInfo (for testing)
+    run_svn: RunSVN (for testing)
+
+  Raises:
+    Error: if can't get URL for relative path.
   """
   comps = svnurl.split("@")
   # by default, we run the svn command at the root directory level
   run_dir = root_dir
-  if _PathExists(os.path.join(root_dir, relpath)):
+  if path_exists(os.path.join(root_dir, relpath)):
     # get the existing svn url and revision number:
-    from_info = _CaptureSVNInfo(relpath, root_dir, options.verbose)
+    from_info = capture_svn_info(relpath, root_dir, options.verbose)
     from_url = from_info.get("URL", None)
     if from_url is None:
       raise Error(
@@ -301,7 +322,7 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
 
     if comps[0] != from_url:
 
-      to_info = _CaptureSVNInfo(svnurl, root_dir, options.verbose)
+      to_info = capture_svn_info(svnurl, root_dir, options.verbose)
       from_repository_root = from_info.get("Repository Root", None)
       to_repository_root = to_info.get("Repository Root", None)
 
@@ -332,8 +353,8 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
         # is used.)  This makes the checks below for whether we
         # can update to a revision or have to switch to a different
         # branch work as expected.
-        _RunSVN(["switch", '--relocate',
-                           from_repository_root, to_repository_root], root_dir)
+        run_svn(["switch", "--relocate",
+                 from_repository_root, to_repository_root], root_dir)
         from_url = from_url.replace(from_repository_root, to_repository_root)
 
     # by default, we assume that we cannot just use 'svn update'
@@ -343,10 +364,10 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
     # number of the existing directory, then we don't need to bother updating.
     if comps[0] == from_url:
       can_update = True
-      if (not options.force and 
+      if (not options.force and
           len(comps) > 1 and comps[1] == from_info["Revision"]):
         if options.verbose:
-          print >>output_stream, ('\n_____ %s at %s' %
+          print >>output_stream, ("\n_____ %s at %s" %
                                   (from_info["URL"], from_info["Revision"]))
         return
 
@@ -367,10 +388,11 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
   if args:
     c.extend(args)
 
-  _RunSVN(c, run_dir)
+  run_svn(c, run_dir)
 
 # -----------------------------------------------------------------------------
 # gclient ops:
+
 
 def CreateClientFileFromText(text):
   """Creates a .gclient file in the current directory from the given text.
@@ -379,14 +401,14 @@ def CreateClientFileFromText(text):
     text: The text of the .gclient file.
   """
   try:
-    f = open(CLIENT_FILE, 'w')
+    f = open(CLIENT_FILE, "w")
     f.write(text)
   finally:
     f.close()
 
+
 def CreateClientFile(solution_name, solution_url):
-  """Creates a default .gclient file in the current directory, constructed from
-  the given parameters.
+  """Creates a default .gclient file in the current directory.
 
   Args:
     solution_name: The name of the solution.
@@ -395,21 +417,24 @@ def CreateClientFile(solution_name, solution_url):
   text = DEFAULT_CLIENT_FILE_TEXT % (solution_name, solution_url)
   CreateClientFileFromText(text)
 
-def CreateClientEntriesFile(client, entries):
-  """Creates a .gclient_entries file alongside the .gclient file to record
-  the list of unique svn checkouts.
 
+def CreateClientEntriesFile(client, entries):
+  """Creates a .gclient_entries file to record the list of unique svn checkouts.
+
+  The .gclient_entries file lives in the same directory as .gclient.
+  
   Args:
     client: The client for which the entries file should be written.
     entries: A sequence of solution names.
   """
   text = "entries = [\n"
-  for e in entries:
-    text += "  \"%s\",\n" % e
+  for entry in entries:
+    text += "  \"%s\",\n" % entry
   text += "]\n"
-  f = open("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), 'w')
+  f = open("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), "w")
   f.write(text)
   f.close()
+
 
 def ReadClientEntriesFile(client):
   """Read the .gclient_entries file for the given client.
@@ -422,15 +447,15 @@ def ReadClientEntriesFile(client):
     entries file hasn't been created yet.
   """
   path = os.path.join(client["root_dir"], CLIENT_ENTRIES_FILE)
-  if not(os.path.exists(path)):
+  if not os.path.exists(path):
     return []
   scope = {}
   execfile(path, scope)
   return scope["entries"]
 
+
 def GetClient():
-  """Searches for and loads a .gclient file relative to the current working
-  directory.
+  """Searches for and loads a .gclient file relative to the current working dir.
 
   Returns:
     A dict representing the contents of the .gclient file or an empty dict if
@@ -450,38 +475,46 @@ def GetClient():
     client_source = client_fo.read()
     exec(client_source, client)
   finally:
-    client_fo.close();
+    client_fo.close()
   # record the root directory and client source for later use
   client["root_dir"] = path
   client["source"] = client_source
   return client
 
+
 class FromImpl:
   """Used to implement the From syntax."""
+
   def __init__(self, module_name):
     self.module_name = module_name
+
   def __str__(self):
     return 'From("%s")' % self.module_name
 
+
 def GetDefaultSolutionDeps(client, solution_name, platform=None,
-                           _execfile=execfile,
-                           _Logger=sys.stdout):
+                           execf=execfile,
+                           logger=sys.stdout):
   """Fetches the DEPS file for the specified solution.
 
   Args:
     client: The client containing the specified solution.
     solution_name: The name of the solution to query.
+    platform: os platform (i.e. the output of sys.platform)
+    execf: execfile function for testing
+    logger: stream for user output
 
   Returns:
     A dict mapping module names (as relative paths) to svn URLs or an empty
     dict if the solution does not have a DEPS file.
   """
   deps_file = os.path.join(client["root_dir"], solution_name, DEPS_FILE)
-  scope = { "From": FromImpl, "deps_os": {} }
+  scope = {"From": FromImpl, "deps_os": {}}
   try:
-    _execfile(deps_file, scope)
+    execf(deps_file, scope)
   except EnvironmentError:
-    print >> _Logger, "\nWARNING: DEPS file not found for solution: %s\n" % solution_name
+    print >> logger, (
+        "\nWARNING: DEPS file not found for solution: %s\n" % solution_name)
     return {}
   deps = scope["deps"]
   # load os specific dependencies if defined.  these dependencies may override
@@ -489,18 +522,19 @@ def GetDefaultSolutionDeps(client, solution_name, platform=None,
   if platform is None:
     platform = sys.platform
   deps_os_key = {
-    'win32' : 'win',
-    'win'   : 'win',
-    'darwin': 'mac',
-    'mac'   : 'mac',
-    'unix'  : 'unix',
-  }.get(platform, 'unix')
+      "win32": "win",
+      "win": "win",
+      "darwin": "mac",
+      "mac": "mac",
+      "unix": "unix",
+  }.get(platform, "unix")
   deps.update(scope["deps_os"].get(deps_os_key, {}))
   return deps
 
+
 def GetAllDeps(client, solution_urls,
-               _GetDefaultSolutionDeps=GetDefaultSolutionDeps,
-               _CaptureSVNInfo=CaptureSVNInfo):
+               get_default_solution_deps=GetDefaultSolutionDeps,
+               capture_svn_info=CaptureSVNInfo):
   """Get the complete list of dependencies for the client.
 
   Args:
@@ -508,6 +542,9 @@ def GetAllDeps(client, solution_urls,
     solution_urls: A dict mapping module names (as relative paths) to svn URLs
       corresponding to the solutions specified by the client.  This parameter
       is passed as an optimization.
+
+    get_default_solution_deps: GetDefaultSolutionDeps (for testing)
+    capture_svn_info: CaptureSVNInfo (for testing)
 
   Returns:
     A dict mapping module names (as relative paths) to svn URLs corresponding
@@ -518,11 +555,11 @@ def GetAllDeps(client, solution_urls,
   """
   deps = {}
   for solution in client["solutions"]:
-    solution_deps = _GetDefaultSolutionDeps(client, solution["name"])
+    solution_deps = get_default_solution_deps(client, solution["name"])
     for d in solution_deps:
       if "custom_deps" in solution and d in solution["custom_deps"]:
         url = solution["custom_deps"][d]
-        if url == None:
+        if url is None:
           continue
       else:
         url = solution_deps[d]
@@ -540,39 +577,45 @@ def GetAllDeps(client, solution_urls,
           if d in deps and type(deps[d]) != str:
             if url.module_name == deps[d].module_name:
               continue
-        scheme, location, path = urlparse.urlparse(url)[:3]
+        parsed_url = urlparse.urlparse(url)
+        scheme = parsed_url[0]
         if not scheme:
-          if path[0] != '/':
+          path = parsed_url[2]
+          if path[0] != "/":
             raise Error(
-              "relative DEPS entry \"%s\" must begin with a slash" % d)
-          info = _CaptureSVNInfo(solution["url"], client["root_dir"], False)
+                "relative DEPS entry \"%s\" must begin with a slash" % d)
+          info = capture_svn_info(solution["url"], client["root_dir"], False)
           url = info["Repository Root"] + url
       if d in deps and deps[d] != url:
         raise Error(
-          "solutions have conflicting versions of dependency \"%s\"" % d)
+            "solutions have conflicting versions of dependency \"%s\"" % d)
       if d in solution_urls and solution_urls[d] != url:
         raise Error(
-          "dependency \"%s\" conflicts with specified solution" % d)
+            "dependency \"%s\" conflicts with specified solution" % d)
       deps[d] = url
   return deps
 
+
 def RunSVNCommandForClientModules(
     command, client, verbose, args,
-    _RunSVNCommandForModule=RunSVNCommandForModule,
-    _GetAllDeps=GetAllDeps):
-  """Runs an svn command on each Subversion module in a client and,
-     recursively, the set of modules it depends on (as specified in
-     module top-level DEPS files)
+    run_svn_command_for_module=RunSVNCommandForModule,
+    get_all_deps=GetAllDeps):
+  """Runs an svn command on each svn module in a client and its dependencies.
+
+  The module's dependencies are specified in its top-level DEPS files.
 
   Args:
     command: The svn command to use (e.g., "status" or "diff")
     client: The client for which to run the commands.
     verbose: If true, then print diagnostic output.
     args: list of str - extra arguments to add to the svn command line.
+    run_svn_command_for_module: RunSVNCommandForModule (for testing)
+    get_all_deps: GetAllDeps (for testing)
 
   Raises:
     Error: If the client has conflicting entries.
   """
+  verbose = verbose  # Suppress lint warning.
   entries = {}
 
   # run on the base solutions first
@@ -581,32 +624,41 @@ def RunSVNCommandForClientModules(
     if name in entries:
       raise Error("solution specified more than once")
     entries[name] = s["url"]
-    _RunSVNCommandForModule(command, name, client["root_dir"], args)
+    run_svn_command_for_module(command, name, client["root_dir"], args)
 
   # do the module dependencies next (sort alphanumerically for
   # readability)
-  deps_to_show = _GetAllDeps(client, entries).keys()
+  deps_to_show = get_all_deps(client, entries).keys()
   deps_to_show.sort()
   for d in deps_to_show:
-    _RunSVNCommandForModule(command, d, client["root_dir"], args)
+    run_svn_command_for_module(command, d, client["root_dir"], args)
+
 
 def UpdateAll(client, options, args,
-              _UpdateToURL=UpdateToURL,
-              _GetAllDeps=GetAllDeps,
-              _CreateClientEntriesFile=CreateClientEntriesFile,
-              _ReadClientEntriesFile=ReadClientEntriesFile,
-              _GetDefaultSolutionDeps=GetDefaultSolutionDeps,
-              _PathExists=os.path.exists,
-              _Logger=sys.stdout):
+              update_to_url=UpdateToURL,
+              get_all_deps=GetAllDeps,
+              create_client_entries_file=CreateClientEntriesFile,
+              read_client_entries_file=ReadClientEntriesFile,
+              get_default_solution_deps=GetDefaultSolutionDeps,
+              path_exists=os.path.exists,
+              logger=sys.stdout):
   """Update all solutions and their dependencies.
 
   Args:
     client: The client to update.
     options: Options object; attributes we care about:
-      verbose: If true, then print diagnostic output.
-      force: If true, then also update modules with unchanged repository version.
-      revision: If specified, a string SOLUTION@REV or just REV
+      verbose - If true, then print diagnostic output.
+      force - If true, then also update modules with unchanged repo version.
+      revision - If specified, a string SOLUTION@REV or just REV
     args: list of str - extra arguments to add to the svn command line.
+
+    update_to_url: dependency (for testing)
+    get_all_deps: dependency (for testing)
+    create_client_entries_file: dependency (for testing)
+    read_client_entries_file: dependency (for testing)
+    get_default_solution_deps: dependency (for testing)
+    path_exists: dependency (for testing)
+    logger: dependency (for testing)
 
   Raises:
     Error: If the client has conflicting entries.
@@ -621,132 +673,157 @@ def UpdateAll(client, options, args,
 
     # Check if we should sync to a given revision
     if options.revision:
-      url_elem = url.split('@')
-      if options.revision.find('@') == -1:
+      url_elem = url.split("@")
+      if options.revision.find("@") == -1:
         # We want to update all solutions.
         url = url_elem[0] + "@" + options.revision
       else:
         # Check if we want to update this solution.
-        revision_elem = options.revision.split('@')
+        revision_elem = options.revision.split("@")
         if revision_elem[0] == name:
           url = url_elem[0] + "@" + revision_elem[1]
 
     entries[name] = url
-    _UpdateToURL(name, url, client["root_dir"], options, args)
+    update_to_url(name, url, client["root_dir"], options, args)
 
   # update the dependencies next (sort alphanumerically to ensure that
   # containing directories get populated first)
-  deps = _GetAllDeps(client, entries)
+  deps = get_all_deps(client, entries)
   deps_to_update = deps.keys()
   deps_to_update.sort()
   # first pass for explicit deps
   for d in deps_to_update:
     if type(deps[d]) == str:
       entries[d] = deps[d]
-      _UpdateToURL(d, deps[d], client["root_dir"], options, args)
+      update_to_url(d, deps[d], client["root_dir"], options, args)
   # first pass for inherited deps (via the From keyword)
   for d in deps_to_update:
     if type(deps[d]) != str:
-      sub_deps = _GetDefaultSolutionDeps(client, deps[d].module_name)
+      sub_deps = get_default_solution_deps(client, deps[d].module_name)
       entries[d] = sub_deps[d]
-      _UpdateToURL(d, sub_deps[d], client["root_dir"], options, args)
+      update_to_url(d, sub_deps[d], client["root_dir"], options, args)
 
   # notify the user if there is an orphaned entry in their working copy.
   # TODO(darin): we should delete this directory manually if it doesn't
   # have any changes in it.
-  prev_entries = _ReadClientEntriesFile(client)
-  for e in prev_entries:
-    e_dir = "%s/%s" % (client["root_dir"], e)
-    if e not in entries and _PathExists(e_dir):
-      entries[e] = None  # keep warning until removed
-      print >> _Logger, ("\nWARNING: \"%s\" is no longer part of this client.  "
-                         "It is recommended that you manually remove it.\n") % e
+  prev_entries = read_client_entries_file(client)
+  for entry in prev_entries:
+    e_dir = "%s/%s" % (client["root_dir"], entry)
+    if entry not in entries and path_exists(e_dir):
+      entries[entry] = None  # keep warning until removed
+      print >> logger, (
+          "\nWARNING: \"%s\" is no longer part of this client.  "
+          "It is recommended that you manually remove it.\n") % entry
 
   # record the current list of entries for next time
-  _CreateClientEntriesFile(client, entries)
+  create_client_entries_file(client, entries)
 
 # -----------------------------------------------------------------------------
 
+
 def DoConfig(options, args, client_file=CLIENT_FILE,
-             _PathExists=os.path.exists,
-             _CreateClientFileFromText=CreateClientFileFromText,
-             _CreateClientFile=CreateClientFile):
-  """Handle the config subcommand
+             path_exists=os.path.exists,
+             create_client_file_from_text=CreateClientFileFromText,
+             create_client_file=CreateClientFile):
+  """Handle the config subcommand.
 
   Args:
-    options.spec: If set, a string providing contents of config file.
+    options: If options.spec set, a string providing contents of config file.
     args: The command line args.  If spec is not set,
           then args[0] is a string URL to get for config file.
+    client_file: name of gclient file.
+
+    path_exists: dependency (for testing)
+    create_client_file_from_text: dependency (for testing)
+    create_client_file: dependency (for testing)
+
+  Raises:
+    Error: on usage error
   """
   if len(args) < 1 and not options.spec:
     raise Error("required argument missing; see 'gclient help config'")
-  if _PathExists(client_file):
+  if path_exists(client_file):
     raise Error(".gclient file already exists in the current directory")
   if options.spec:
-    _CreateClientFileFromText(options.spec)
+    create_client_file_from_text(options.spec)
   else:
     # TODO(darin): it would be nice to be able to specify an alternate relpath
     # for the given svn URL.
     svnurl = args[0]
     name = args[0].split("/")[-1]
-    _CreateClientFile(name, svnurl)
+    create_client_file(name, svnurl)
+
 
 def DoHelp(options, args,
            output_stream=sys.stdout):
-  """Handle the help subcommand giving help for another subcommand
+  """Handle the help subcommand giving help for another subcommand.
 
   Args:
+    options: The command line options.
     args: The command line args.
+    output_stream: dependency (for testing).
+
+  Raises:
+    Error: if the command is unknown.
   """
+  options = options   # suppress lint warning
   if len(args) == 1 and args[0] in COMMAND_USAGE_TEXT:
     print >>output_stream, COMMAND_USAGE_TEXT[args[0]]
   else:
     raise Error("unknown subcommand; see 'gclient help'")
 
+
 def DoStatus(options, args,
-             _GetClient=GetClient,
-             _RunSVNCommandForClientModules=RunSVNCommandForClientModules):
-  """Handle the status subcommand
+             get_client=GetClient,
+             run_svn_command_for_client_modules=RunSVNCommandForClientModules):
+  """Handle the status subcommand.
 
   Args:
+    options: set options.verbose for extra logging
     args: list of str - extra arguments to add to the svn command line.
+    get_client: dependency (for testing).
+    run_svn_command_for_client_modules: dependency (for testing)
+
+  Raises:
+    Error: if client isn't configured properly.
   """
-  client = _GetClient()
-  if len(client) == 0:
+  client = get_client()
+  if not client:
     raise Error("client not configured; see 'gclient config'")
-  _RunSVNCommandForClientModules("status", client, options.verbose, args)
+  run_svn_command_for_client_modules("status", client, options.verbose, args)
+
 
 def DoUpdate(options, args,
-             _GetClient=GetClient,
-             _UpdateAll=UpdateAll,
-             _output_stream=sys.stdout):
-  """Handle the update and sync subcommands
-  """
-  client = _GetClient()
-  if len(client) == 0:
+             get_client=GetClient,
+             update_all=UpdateAll,
+             output_stream=sys.stdout):
+  """Handle the update and sync subcommands."""
+  client = get_client()
+  if not client:
     raise Error("client not configured; see 'gclient config'")
   if options.verbose:
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
-    print >>_output_stream, client["source"]
-  _UpdateAll(client, options, args)
+    print >>output_stream, client["source"]
+  update_all(client, options, args)
+
 
 def DoDiff(options, args,
-           _GetClient=GetClient,
-           _RunSVNCommandForClientModules=RunSVNCommandForClientModules,
-           _output_stream=sys.stdout):
-  """Handle the diff subcommands
-  """
-  client = _GetClient()
-  if len(client) == 0:
+           get_client=GetClient,
+           run_svn_command_for_client_modules=RunSVNCommandForClientModules,
+           output_stream=sys.stdout):
+  """Handle the diff subcommands."""
+  client = get_client()
+  if not client:
     raise Error("client not configured; see 'gclient config'")
   if options.verbose:
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
-    print >>_output_stream, client["source"]
-  _RunSVNCommandForClientModules("diff", client, options.verbose, args)
+    print >>output_stream, client["source"]
+  run_svn_command_for_client_modules("diff", client, options.verbose, args)
 
-_command_map = {
+
+gclient_command_map = {
     "config": DoConfig,
     "diff": DoDiff,
     "help": DoHelp,
@@ -755,16 +832,21 @@ _command_map = {
     "update": DoUpdate,
     }
 
-def DispatchCommand(command, options, args, command_map=_command_map):
-  """Dispatches the appropriate subcommand based on command line arguments.
-  """
+
+def DispatchCommand(command, options, args, command_map=None):
+  """Dispatches the appropriate subcommand based on command line arguments."""
+  if command_map is None:
+    command_map = gclient_command_map
+
   if command in command_map:
     command_map[command](options, args)
   else:
     raise Error("unknown subcommand; see 'gclient help'")
 
+
 def Main(argv):
-  if len(argv) <2:
+  """Parse command line arguments and dispatch command."""
+  if len(argv) < 2:
     raise Error("required subcommand missing; see 'gclient help'")
 
   command = argv[1]
@@ -773,29 +855,29 @@ def Main(argv):
   option_parser.disable_interspersed_args()
   option_parser.set_usage(DEFAULT_USAGE_TEXT)
   option_parser.add_option("", "--force", action="store_true", default=False,
-                           help="(update/sync only) force update even "
-                                "for modules which haven't changed")
+                           help=("(update/sync only) force update even "
+                                 "for modules which haven't changed"))
   option_parser.add_option("", "--relocate", action="store_true",
                            default=False,
                            help="relocate")
   option_parser.add_option("", "--revision", default=None,
-                           help="(update/sync only) sync to a specific "
-				"revision")
+                           help=("(update/sync only) sync to a specific "
+                                 "revision"))
   option_parser.add_option("", "--spec", default=None,
-                           help="(config only) create a gclient file "
-                                "containing the provided string")
+                           help=("(config only) create a gclient file "
+                                 "containing the provided string"))
   option_parser.add_option("", "--verbose", action="store_true", default=False,
                            help="produce additional output for diagnostics")
 
   options, args = option_parser.parse_args(argv[2:])
 
-  if len(argv)<3 and command == "help":
+  if len(argv) < 3 and command == "help":
     option_parser.print_help()
     sys.exit(0)
 
   DispatchCommand(command, options, args)
 
-if '__main__' == __name__:
+if "__main__" == __name__:
   try:
     Main(sys.argv)
   except Error, e:
