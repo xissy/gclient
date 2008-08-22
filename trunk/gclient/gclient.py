@@ -222,6 +222,7 @@ def RunSVN(args, in_directory,
   rv = call(c, cwd=in_directory, shell=True)
   if rv:
     raise Error("failed to run command: %s" % " ".join(c))
+  return rv
 
 
 def CaptureSVN(args, in_directory, verbose):
@@ -278,7 +279,7 @@ def RunSVNCommandForModule(command, relpath, root_dir, args):
   """
   c = [command]
   c.extend(args)
-  RunSVN(c, os.path.join(root_dir, relpath))
+  return RunSVN(c, os.path.join(root_dir, relpath))
 
 
 def UpdateToURL(relpath, svnurl, root_dir, options, args,
@@ -388,7 +389,7 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
   if args:
     c.extend(args)
 
-  run_svn(c, run_dir)
+  return run_svn(c, run_dir)
 
 # -----------------------------------------------------------------------------
 # gclient ops:
@@ -664,6 +665,7 @@ def UpdateAll(client, options, args,
     Error: If the client has conflicting entries.
   """
   entries = {}
+  result = 0
   # update the solutions first so we can read their dependencies
   for s in client["solutions"]:
     name = s["name"]
@@ -684,7 +686,9 @@ def UpdateAll(client, options, args,
           url = url_elem[0] + "@" + revision_elem[1]
 
     entries[name] = url
-    update_to_url(name, url, client["root_dir"], options, args)
+    r = update_to_url(name, url, client["root_dir"], options, args)
+    if r and result == 0:
+      result = r
 
   # update the dependencies next (sort alphanumerically to ensure that
   # containing directories get populated first)
@@ -695,13 +699,17 @@ def UpdateAll(client, options, args,
   for d in deps_to_update:
     if type(deps[d]) == str:
       entries[d] = deps[d]
-      update_to_url(d, deps[d], client["root_dir"], options, args)
+      r = update_to_url(d, deps[d], client["root_dir"], options, args)
+      if r and result == 0:
+        result = r
   # first pass for inherited deps (via the From keyword)
   for d in deps_to_update:
     if type(deps[d]) != str:
       sub_deps = get_default_solution_deps(client, deps[d].module_name)
       entries[d] = sub_deps[d]
-      update_to_url(d, sub_deps[d], client["root_dir"], options, args)
+      r = update_to_url(d, sub_deps[d], client["root_dir"], options, args)
+      if r and result == 0:
+        result = r
 
   # notify the user if there is an orphaned entry in their working copy.
   # TODO(darin): we should delete this directory manually if it doesn't
@@ -717,6 +725,8 @@ def UpdateAll(client, options, args,
 
   # record the current list of entries for next time
   create_client_entries_file(client, entries)
+
+  return result
 
 # -----------------------------------------------------------------------------
 
@@ -790,7 +800,8 @@ def DoStatus(options, args,
   client = get_client()
   if not client:
     raise Error("client not configured; see 'gclient config'")
-  run_svn_command_for_client_modules("status", client, options.verbose, args)
+  return run_svn_command_for_client_modules("status", client,
+                                            options.verbose, args)
 
 
 def DoUpdate(options, args,
@@ -805,7 +816,7 @@ def DoUpdate(options, args,
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
     print >>output_stream, client["source"]
-  update_all(client, options, args)
+  return update_all(client, options, args)
 
 
 def DoDiff(options, args,
@@ -820,7 +831,8 @@ def DoDiff(options, args,
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
     print >>output_stream, client["source"]
-  run_svn_command_for_client_modules("diff", client, options.verbose, args)
+  return run_svn_command_for_client_modules("diff", client,
+                                            options.verbose, args)
 
 
 gclient_command_map = {
@@ -839,7 +851,7 @@ def DispatchCommand(command, options, args, command_map=None):
     command_map = gclient_command_map
 
   if command in command_map:
-    command_map[command](options, args)
+    return command_map[command](options, args)
   else:
     raise Error("unknown subcommand; see 'gclient help'")
 
@@ -875,11 +887,12 @@ def Main(argv):
     option_parser.print_help()
     sys.exit(0)
 
-  DispatchCommand(command, options, args)
+  return DispatchCommand(command, options, args)
 
 if "__main__" == __name__:
   try:
-    Main(sys.argv)
+    result = Main(sys.argv)
   except Error, e:
     print "Error: %s" % e.message
-    sys.exit(1)
+    result = 1
+  sys.exit(result)
