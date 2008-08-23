@@ -1013,6 +1013,58 @@ class TestDoDiff(GclientTestCase):
     self.mox.VerifyAll()
 
 
+class TestDoRevert(GclientTestCase):
+  # TODO(sng): pull out common stuff with TestDoUpdate
+
+  class Options(object):
+    def __init__(self):
+      self.verbose = False
+
+  def setUp(self):
+    self.mox = mox.Mox()
+    self.gclient = self.mox.CreateMock(gclient)
+
+  def testBasic(self):
+    client = {'client': 'my client', 'source': 'contents of the source file'}
+    options = TestDoRevert.Options()
+    args = Args()
+    self.gclient.GetClient().AndReturn(client)
+    self.gclient.RunSVNCommandForClientModules(
+        'revert', client, options.verbose, args).AndReturn(0)
+
+    self.mox.ReplayAll()
+    result = gclient.DoRevert(options, args, self.gclient.GetClient,
+                              self.gclient.RunSVNCommandForClientModules)
+    self.assertEquals(result, 0)
+    self.mox.VerifyAll()
+
+  def testError(self):
+    client = {'client': 'my client', 'source': 'contents of the source file'}
+    options = TestDoRevert.Options()
+    args = Args()
+    self.gclient.GetClient().AndReturn(client)
+    self.gclient.RunSVNCommandForClientModules(
+        'revert', client, options.verbose, args).AndReturn(444)
+
+    self.mox.ReplayAll()
+    result = gclient.DoRevert(options, args, self.gclient.GetClient,
+                              self.gclient.RunSVNCommandForClientModules)
+    self.assertEquals(result, 444)
+    self.mox.VerifyAll()
+
+  def testBadClient(self):
+    client = {}
+    options = TestDoRevert.Options()
+    args = Args()
+    self.gclient.GetClient().AndReturn(client)
+
+    self.mox.ReplayAll()
+    self.assertRaisesError(
+        "client not configured; see 'gclient config'",
+        gclient.DoRevert, options, args, self.gclient.GetClient)
+    self.mox.VerifyAll()
+
+
 class TestDispatchCommand(GclientTestCase):
   class Options(object):
     def __init__(self):

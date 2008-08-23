@@ -56,6 +56,7 @@ a wrapper for managing a set of client modules in svn.
 subcommands:
    config
    diff
+   revert
    status
    sync
    update
@@ -137,6 +138,11 @@ Examples:
       use 'svn diff -x -b' to suppress whitespace-only differences
   gclient diff -- -r HEAD -x -b
       diff versus the latest version of each module
+""",
+    "revert":
+    """Revert every file in every managed directory in the client view.
+
+usage: revert
 """,
     "status":
     """Show the status of client and dependent modules, using 'svn diff'
@@ -829,7 +835,7 @@ def DoDiff(options, args,
            get_client=GetClient,
            run_svn_command_for_client_modules=RunSVNCommandForClientModules,
            output_stream=sys.stdout):
-  """Handle the diff subcommands."""
+  """Handle the diff subcommand."""
   client = get_client()
   if not client:
     raise Error("client not configured; see 'gclient config'")
@@ -840,6 +846,18 @@ def DoDiff(options, args,
   return run_svn_command_for_client_modules("diff", client,
                                             options.verbose, args)
 
+def DoRevert(options, args,
+             get_client=GetClient,
+             run_svn_command_for_client_modules=RunSVNCommandForClientModules):
+  """Handle the revert subcommand."""
+  client = get_client()
+  if not client:
+    raise Error("client not configured; see 'gclient config'")
+  args.append("--recursive")
+  args.append("*.*")
+  return run_svn_command_for_client_modules("revert", client,
+                                            options.verbose, args)
+
 
 gclient_command_map = {
     "config": DoConfig,
@@ -848,6 +866,7 @@ gclient_command_map = {
     "status": DoStatus,
     "sync": DoUpdate,
     "update": DoUpdate,
+    "revert": DoRevert,
     }
 
 
