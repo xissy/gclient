@@ -219,7 +219,13 @@ def RunSVN(args, in_directory,
       "\n________ running \'%s\' in \'%s\'" % (" ".join(c),
                                                realpath(in_directory)))
   output_stream.flush()  # flush our stdout so it shows up first.
-  rv = call(c, cwd=in_directory, shell=True)
+
+  # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for
+  # the svn.exe executable, but shell=True makes subprocess on Linux fail
+  # when it's called with a list because it only tries to execute the
+  # first string ("svn").
+  rv = call(c, cwd=in_directory, shell=(sys.platform == 'win32'))
+
   if rv:
     raise Error("failed to run command: %s" % " ".join(c))
   return rv
