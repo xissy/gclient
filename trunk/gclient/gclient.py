@@ -254,7 +254,12 @@ def CaptureSVN(args, in_directory, verbose):
     print ("\n________ running \'%s\' in \'%s\'"
            % (" ".join(c), os.path.realpath(in_directory)))
     sys.stdout.flush()  # flush our stdout so it shows up first.
-  return subprocess.Popen(c, cwd=in_directory, shell=True,
+
+  # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for
+  # the svn.exe executable, but shell=True makes subprocess on Linux fail
+  # when it's called with a list because it only tries to execute the
+  # first string ("svn").
+  return subprocess.Popen(c, cwd=in_directory, shell=(sys.platform == 'win32'),
                           stdout=subprocess.PIPE).communicate()[0]
 
 
