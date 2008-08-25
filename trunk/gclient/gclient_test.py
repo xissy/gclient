@@ -584,8 +584,8 @@ class TestUpdateToURL(GclientTestCase):
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
     self.gclient.CaptureSVNInfo(url_rev, self.root, False).AndReturn(info)
-    self.gclient.RunSVN(['switch', '--relocate', self.root_url, root_url],
-                        self.root).AndReturn(0)
+    self.gclient.RunSVN(['switch', '--relocate', self.root_url, root_url,
+                         self.rel], self.root).AndReturn(0)
     self.gclient.RunSVN(['switch', '-r', rev, url, self.rel],
                         self.root).AndReturn(17)
 
@@ -609,8 +609,8 @@ class TestUpdateToURL(GclientTestCase):
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
     self.gclient.CaptureSVNInfo(url_rev, self.root, False).AndReturn(info)
-    self.gclient.RunSVN(['switch', '--relocate', self.root_url, root_url],
-                        self.root).AndReturn(0)
+    self.gclient.RunSVN(['switch', '--relocate', self.root_url, root_url,
+                         self.rel], self.root).AndReturn(0)
     self.gclient.RunSVN(['update', '-r', rev], self.rootpath).AndReturn(123)
 
     self.mox.ReplayAll()

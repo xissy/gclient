@@ -367,7 +367,7 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
         # can update to a revision or have to switch to a different
         # branch work as expected.
         run_svn(["switch", "--relocate",
-                 from_repository_root, to_repository_root], root_dir)
+                 from_repository_root, to_repository_root, relpath], root_dir)
         from_url = from_url.replace(from_repository_root, to_repository_root)
 
     # by default, we assume that we cannot just use 'svn update'
