@@ -1386,6 +1386,25 @@ class TestGetAllDeps(GclientTestCase):
         self.get_all_deps, client, {'conflict': 'http://url2'})
     self.mox.VerifyAll()
 
+  def testFrom(self):
+    solutions = [{'name': 'solution',
+                  'url': 'http://solution',
+                 },
+                ]
+    client = {'solutions': solutions}
+
+    class From:
+      def __init__(self, module_name):
+        self.module_name = module_name
+
+    deps = {'xyz': From('other_module')}
+
+    self.gclient.GetDefaultSolutionDeps(client, 'solution').AndReturn(deps)
+    self.mox.ReplayAll()
+    result = self.get_all_deps(client, {})
+    self.mox.VerifyAll()
+    self.assertEqual(result, deps)
+
 
 if __name__ == '__main__':
   unittest.main()
