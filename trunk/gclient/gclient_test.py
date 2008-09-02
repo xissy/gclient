@@ -1157,6 +1157,19 @@ class TestGetDefaultSolutionDeps(GclientTestCase):
     self.mox.VerifyAll()
     self.assertEqual(result, {})
 
+  def testNoDepsDictionary(self):
+    client = {'root_dir': '/my/dir'}
+
+    def MockExecFile(fname, scope):
+      self.my_execfile_fname = fname
+      scope.update({})
+
+    self.mox.ReplayAll()
+    result = self.get_default_solution_deps(client, 'my_solution',
+                                            execf=MockExecFile)
+    self.mox.VerifyAll()
+    self.assertEqual(result, {})
+
   def testSimpleDepsFile(self):
     client = {'root_dir': '/my/dir'}
 
