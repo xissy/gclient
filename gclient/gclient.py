@@ -495,7 +495,7 @@ def GetClient():
     path = next[0]
     client_file = os.path.join(path, CLIENT_FILE)
   client = {}
-  client_fo = open(client_file)
+  client_fo = open(client_file, 'U')
   try:
     client_source = client_fo.read()
     exec(client_source, client)
