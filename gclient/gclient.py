@@ -259,8 +259,9 @@ def CaptureSVN(args, in_directory, verbose):
   # the svn.exe executable, but shell=True makes subprocess on Linux fail
   # when it's called with a list because it only tries to execute the
   # first string ("svn").
+  env = {'LANG': 'C'}
   return subprocess.Popen(c, cwd=in_directory, shell=(sys.platform == 'win32'),
-                          stdout=subprocess.PIPE).communicate()[0]
+                          stdout=subprocess.PIPE, env=env).communicate()[0]
 
 
 def CaptureSVNInfo(relpath, in_directory, verbose):
