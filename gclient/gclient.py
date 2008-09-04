@@ -255,11 +255,15 @@ def CaptureSVN(args, in_directory, verbose):
            % (" ".join(c), os.path.realpath(in_directory)))
     sys.stdout.flush()  # flush our stdout so it shows up first.
 
+  # Force the captured output to not use localized strings, so we can
+  # find the information we're coded to look for.
+  env = os.environ.copy()
+  env['LANG'] = 'C'
+
   # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for
   # the svn.exe executable, but shell=True makes subprocess on Linux fail
   # when it's called with a list because it only tries to execute the
   # first string ("svn").
-  env = {'LANG': 'C'}
   return subprocess.Popen(c, cwd=in_directory, shell=(sys.platform == 'win32'),
                           stdout=subprocess.PIPE, env=env).communicate()[0]
 
