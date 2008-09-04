@@ -497,6 +497,7 @@ class TestUpdateToURL(GclientTestCase):
     self.rel = 'relative_path'
     self.root = 'root_directory'
     self.rootpath = os.path.join(self.root, self.rel)
+    self.git_path = os.path.join(self.rootpath, '.git')
     self.url_rev = 'http://svn/trunk@123'
     self.url, self.rev = self.url_rev.split('@')
     self.uuid = 'a-fake-UUID-value'
@@ -517,6 +518,7 @@ class TestUpdateToURL(GclientTestCase):
             run_svn=self.gclient.RunSVN))
 
   def testSimpleCall(self):
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(False)
     self.gclient.RunSVN(['checkout', self.url_rev, self.rel],
                         self.root).AndReturn(0)
@@ -528,6 +530,7 @@ class TestUpdateToURL(GclientTestCase):
     self.mox.VerifyAll()
 
   def testCallWithArguments(self):
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(False)
     self.gclient.RunSVN(['checkout', self.url_rev, self.rel, 'arg1', 'arg2'],
                         self.root).AndReturn(7)
@@ -547,6 +550,7 @@ class TestUpdateToURL(GclientTestCase):
 
     # Have CaptureSVNInfo() simulate an "svn info" error by returning
     # an empty dictionary.
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(self.rel, self.root, False).AndReturn({})
 
@@ -559,6 +563,7 @@ class TestUpdateToURL(GclientTestCase):
   def testSwitch(self):
     url = 'svn://new_svn/trunk'
 
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -580,6 +585,7 @@ class TestUpdateToURL(GclientTestCase):
             'Revision': rev,
            }
 
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -605,6 +611,7 @@ class TestUpdateToURL(GclientTestCase):
             'Revision': rev,
            }
 
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -632,6 +639,7 @@ class TestUpdateToURL(GclientTestCase):
                         '\tcan not relocate to URL with different Repository '
                         'UUID.\n' % (url_rev))
 
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -658,6 +666,7 @@ class TestUpdateToURL(GclientTestCase):
                         '\tto   %s.\n'
                         % (url_rev, self.url, url))
 
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -673,6 +682,7 @@ class TestUpdateToURL(GclientTestCase):
     url_rev = 'svn://new_svn/trunk@789'
     url, rev = url_rev.split('@')
 
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -688,6 +698,7 @@ class TestUpdateToURL(GclientTestCase):
     self.mox.VerifyAll()
 
   def testUpdate(self):
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -700,6 +711,7 @@ class TestUpdateToURL(GclientTestCase):
     self.mox.VerifyAll()
 
   def testMatchingRevision(self):
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -709,6 +721,7 @@ class TestUpdateToURL(GclientTestCase):
     self.mox.VerifyAll()
 
   def testMatchingRevisionForce(self):
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, False).AndReturn(self.svn_info)
@@ -721,6 +734,7 @@ class TestUpdateToURL(GclientTestCase):
     self.mox.VerifyAll()
 
   def testMatchingRevisionVerbose(self):
+    self.os_path.exists(self.git_path).AndReturn(False)
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, True).AndReturn(self.svn_info)
@@ -731,6 +745,19 @@ class TestUpdateToURL(GclientTestCase):
     self.update_to_url(self.rel, self.url_rev, self.root,
                        self.Options(verbose=True), None)
     self.mox.VerifyAll()
+
+  def testGitPath(self):
+    self.os_path.exists(self.git_path).AndReturn(True)
+    self.stdout.write(
+        '________ found .git directory; skipping relative_path')
+    self.stdout.write('\n')
+
+    self.mox.ReplayAll()
+    result = self.update_to_url(self.rel, self.url_rev, self.root,
+                                self.Options(), None)
+    self.assertEquals(result, None)
+    self.mox.VerifyAll()
+
 
 
 class TestDoConfig(GclientTestCase):
