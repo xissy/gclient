@@ -902,7 +902,10 @@ def DispatchCommand(command, options, args, command_map=None):
 def Main(argv):
   """Parse command line arguments and dispatch command."""
   if len(argv) < 2:
-    raise Error("required subcommand missing; see 'gclient help'")
+    # Don't raise an Error() so as not to alarm people with the
+    # scary string "Error" in the output.  Just mimic svn's message.
+    print "Type 'gclient help' for usage."
+    return 1
 
   command = argv[1]
 
