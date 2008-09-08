@@ -42,6 +42,19 @@ import os
 import subprocess
 import sys
 import urlparse
+import xml.dom.minidom
+
+def getText(nodelist):
+  """
+  Return the concatenated text for the children of a list of DOM nodes.
+  """
+  rc = []
+  for node in nodelist:
+    if node.nodeType == node.TEXT_NODE:
+      rc.append(node.data)
+    else:
+      rc.append(getText(node.childNodes))
+  return ''.join(rc)
 
 SVN_COMMAND = "svn"
 CLIENT_FILE = os.environ.get("GCLIENT_FILE", ".gclient")
@@ -255,20 +268,15 @@ def CaptureSVN(args, in_directory, verbose):
            % (" ".join(c), os.path.realpath(in_directory)))
     sys.stdout.flush()  # flush our stdout so it shows up first.
 
-  # Force the captured output to not use localized strings, so we can
-  # find the information we're coded to look for.
-  env = os.environ.copy()
-  env['LANG'] = 'C'
-
   # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for
   # the svn.exe executable, but shell=True makes subprocess on Linux fail
   # when it's called with a list because it only tries to execute the
   # first string ("svn").
   return subprocess.Popen(c, cwd=in_directory, shell=(sys.platform == 'win32'),
-                          stdout=subprocess.PIPE, env=env).communicate()[0]
+                          stdout=subprocess.PIPE).communicate()[0]
 
 
-def CaptureSVNInfo(relpath, in_directory, verbose):
+def CaptureSVNInfo(relpath, in_directory, verbose, capture_svn=CaptureSVN):
   """Runs 'svn info' on an existing path.
 
   Args:
@@ -280,12 +288,19 @@ def CaptureSVNInfo(relpath, in_directory, verbose):
   Returns:
     A dict of fields corresponding to the output of 'svn info'
   """
-  info = CaptureSVN(["info", relpath], in_directory, verbose)
-  result = {}
-  for line in info.splitlines():
-    fields = line.split(": ")
-    if len(fields) > 1:
-      result[fields[0]] = fields[1]
+  info = capture_svn(["info", "--xml", relpath], in_directory, verbose)
+  dom = xml.dom.minidom.parseString(info)
+
+  # str() the getText() results because they may be returned as
+  # Unicode, which interferes with the higher layers matching up
+  # things in the deps dictionary.
+  result = {
+      'root': str(getText(dom.getElementsByTagName('root'))),
+      'url': str(getText(dom.getElementsByTagName('url'))),
+      'uuid': str(getText(dom.getElementsByTagName('uuid'))),
+      'revision': dom.getElementsByTagName('entry')[0].getAttribute('revision'),
+  }
+
   return result
 
 
@@ -342,7 +357,7 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
   if path_exists(os.path.join(root_dir, relpath)):
     # get the existing svn url and revision number:
     from_info = capture_svn_info(relpath, root_dir, options.verbose)
-    from_url = from_info.get("URL", None)
+    from_url = from_info.get("url", None)
     if from_url is None:
       raise Error(
           "Couldn't get URL for relative path: '%s' under root directory: %s.\n"
@@ -353,15 +368,15 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
     if comps[0] != from_url:
 
       to_info = capture_svn_info(svnurl, root_dir, options.verbose)
-      from_repository_root = from_info.get("Repository Root", None)
-      to_repository_root = to_info.get("Repository Root", None)
+      from_repository_root = from_info.get("root", None)
+      to_repository_root = to_info.get("root", None)
 
       if from_repository_root and from_repository_root != to_repository_root:
 
         # We have different roots, so check if we can switch --relocate.
         # Subversion only permits this if the repository UUIDs match.
-        from_repository_uuid = from_info.get("Repository UUID", None)
-        to_repository_uuid = to_info.get("Repository UUID", None)
+        from_repository_uuid = from_info.get("uuid", None)
+        to_repository_uuid = to_info.get("uuid", None)
         if from_repository_uuid != to_repository_uuid:
           print >>output_stream, ("Skipping update to %s;\n"
                                   "\tcan not relocate to URL with different"
@@ -395,10 +410,10 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
     if comps[0] == from_url:
       can_update = True
       if (not options.force and
-          len(comps) > 1 and comps[1] == from_info["Revision"]):
+          len(comps) > 1 and comps[1] == from_info["revision"]):
         if options.verbose:
           print >>output_stream, ("\n_____ %s at %s" %
-                                  (from_info["URL"], from_info["Revision"]))
+                                  (from_info["url"], from_info["revision"]))
         return
 
     if can_update:
@@ -616,7 +631,7 @@ def GetAllDeps(client, solution_urls,
               raise Error(
                   "relative DEPS entry \"%s\" must begin with a slash" % d)
             info = capture_svn_info(solution["url"], client["root_dir"], False)
-            url = info["Repository Root"] + url
+            url = info["root"] + url
       if d in deps and deps[d] != url:
         raise Error(
             "solutions have conflicting versions of dependency \"%s\"" % d)

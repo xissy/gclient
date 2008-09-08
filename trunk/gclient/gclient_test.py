@@ -502,10 +502,10 @@ class TestUpdateToURL(GclientTestCase):
     self.url, self.rev = self.url_rev.split('@')
     self.uuid = 'a-fake-UUID-value'
     self.root_url = 'http://svn'
-    self.svn_info = {'URL': self.url,
-                     'Repository Root': self.root_url,
-                     'Repository UUID': self.uuid,
-                     'Revision': self.rev,
+    self.svn_info = {'url': self.url,
+                     'root': self.root_url,
+                     'uuid': self.uuid,
+                     'revision': self.rev,
                     }
 
     self.update_to_url = (
@@ -579,10 +579,10 @@ class TestUpdateToURL(GclientTestCase):
     url_rev = 'svn://new_svn/branches/foo@789'
     url, rev = url_rev.split('@')
     root_url = 'svn://new_svn'
-    info = {'URL': url,
-            'Repository Root': root_url,
-            'Repository UUID': self.uuid,
-            'Revision': rev,
+    info = {'url': url,
+            'root': root_url,
+            'uuid': self.uuid,
+            'revision': rev,
            }
 
     self.os_path.exists(self.git_path).AndReturn(False)
@@ -605,10 +605,10 @@ class TestUpdateToURL(GclientTestCase):
     url_rev = 'svn://new_svn/trunk@789'
     url, rev = url_rev.split('@')
     root_url = 'svn://new_svn'
-    info = {'URL': url,
-            'Repository Root': root_url,
-            'Repository UUID': self.uuid,
-            'Revision': rev,
+    info = {'url': url,
+            'root': root_url,
+            'uuid': self.uuid,
+            'revision': rev,
            }
 
     self.os_path.exists(self.git_path).AndReturn(False)
@@ -629,10 +629,10 @@ class TestUpdateToURL(GclientTestCase):
   def testSwitchRelocateDifferentUUID(self):
     url_rev = 'svn://new_svn/trunk@789'
     url, rev = url_rev.split('@')
-    info = {'URL': url,
-            'Repository Root': 'svn://new_svn',
-            'Repository UUID': 'a-different-UUID-value',
-            'Revision': rev,
+    info = {'url': url,
+            'root': 'svn://new_svn',
+            'uuid': 'a-different-UUID-value',
+            'revision': rev,
            }
 
     expected_message = ('Skipping update to %s;\n'
@@ -654,10 +654,10 @@ class TestUpdateToURL(GclientTestCase):
   def testSwitchNoRelocateOption(self):
     url_rev = 'svn://new_svn/trunk@789'
     url, rev = url_rev.split('@')
-    info = {'URL': url,
-            'Repository Root': 'svn://new_svn',
-            'Repository UUID': self.uuid,
-            'Revision': rev,
+    info = {'url': url,
+            'root': 'svn://new_svn',
+            'uuid': self.uuid,
+            'revision': rev,
            }
 
     expected_message = ('Skipping update to %s;\n'
@@ -738,7 +738,7 @@ class TestUpdateToURL(GclientTestCase):
     self.os_path.exists(self.rootpath).AndReturn(True)
     self.gclient.CaptureSVNInfo(
         self.rel, self.root, True).AndReturn(self.svn_info)
-    self.stdout.write('\n_____ %(URL)s at %(Revision)s' % self.svn_info)
+    self.stdout.write('\n_____ %(url)s at %(revision)s' % self.svn_info)
     self.stdout.write('\n')
 
     self.mox.ReplayAll()
@@ -1363,7 +1363,7 @@ class TestGetAllDeps(GclientTestCase):
               'root_dir': RootDir()}
     deps = {'component1': 'http://an/absolute/url/path',
             'component2': '/a/relative/path'}
-    svn_info = {'Repository Root': root_url}
+    svn_info = {'root': root_url}
 
     expected_result = deps.copy()
     expected_result['component2'] = root_url + deps['component2']
@@ -1444,6 +1444,54 @@ class TestGetAllDeps(GclientTestCase):
     result = self.get_all_deps(client, {})
     self.mox.VerifyAll()
     self.assertEqual(result, deps)
+
+
+class TestCaptureSVNInfo(GclientTestCase):
+  def setUp(self):
+    self.mox = mox.Mox()
+    self.gclient = self.mox.CreateMock(gclient)
+    self.CaptureSVNInfo = (
+        lambda relpath, in_directory, verbose:
+        gclient.CaptureSVNInfo(relpath, in_directory, verbose,
+            capture_svn=self.gclient.CaptureSVN))
+
+  def testBasic(self):
+    xml = """<?xml version="1.0"?>
+    <info>
+    <entry
+       kind="dir"
+       path="."
+       revision="12345">
+    <url>http://test.url/root/url</url>
+    <repository>
+    <root>http://test.url/root</root>
+    <uuid>a-fake-uuid-value</uuid>
+    </repository>
+    <wc-info>
+    <schedule>normal</schedule>
+    </wc-info>
+    <commit
+       revision="12345">
+    <author>sguireknight</author>
+    <date>2008-09-04T18:14:15.308404Z</date>
+    </commit>
+    </entry>
+    </info>
+    """
+
+    expect = {
+        'url': 'http://test.url/root/url',
+        'root': 'http://test.url/root',
+        'uuid': 'a-fake-uuid-value',
+        'revision': '12345',
+    }
+
+    self.gclient.CaptureSVN(['info', '--xml', 'rel_path'],
+                            'in_dir', False).AndReturn(xml)
+    self.mox.ReplayAll()
+    result = self.CaptureSVNInfo('rel_path', 'in_dir', False)
+    self.mox.VerifyAll()
+    self.assertEqual(result, expect)
 
 
 if __name__ == '__main__':
