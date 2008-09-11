@@ -1057,11 +1057,13 @@ class TestDoRevert(GclientTestCase):
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.RunSVNCommandForClientModules(
-        'revert', client, options.verbose, args).AndReturn(0)
+        'DUMMY', client, options.verbose, args,
+        run_svn_command_for_module=self.gclient.RevertForModule).AndReturn(0)
 
     self.mox.ReplayAll()
     result = gclient.DoRevert(options, args, self.gclient.GetClient,
-                              self.gclient.RunSVNCommandForClientModules)
+                              self.gclient.RunSVNCommandForClientModules,
+                              revert_for_module=self.gclient.RevertForModule)
     self.assertEquals(result, 0)
     self.mox.VerifyAll()
 
@@ -1071,11 +1073,13 @@ class TestDoRevert(GclientTestCase):
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.RunSVNCommandForClientModules(
-        'revert', client, options.verbose, args).AndReturn(444)
+        'DUMMY', client, options.verbose, args,
+        run_svn_command_for_module=self.gclient.RevertForModule).AndReturn(444)
 
     self.mox.ReplayAll()
     result = gclient.DoRevert(options, args, self.gclient.GetClient,
-                              self.gclient.RunSVNCommandForClientModules)
+                              self.gclient.RunSVNCommandForClientModules,
+                              revert_for_module=self.gclient.RevertForModule)
     self.assertEquals(result, 444)
     self.mox.VerifyAll()
 
@@ -1490,6 +1494,35 @@ class TestCaptureSVNInfo(GclientTestCase):
                             'in_dir', False).AndReturn(xml)
     self.mox.ReplayAll()
     result = self.CaptureSVNInfo('rel_path', 'in_dir', False)
+    self.mox.VerifyAll()
+    self.assertEqual(result, expect)
+
+
+class TestCaptureSVNStatus(GclientTestCase):
+  def setUp(self):
+    self.mox = mox.Mox()
+    self.gclient = self.mox.CreateMock(gclient)
+    self.CaptureSVNStatus = (
+        lambda path, verbose:
+        gclient.CaptureSVNStatus(path, verbose,
+            capture_svn=self.gclient.CaptureSVN))
+
+  def testBasic(self):
+    output = """ABCDEFGbleh.cc
+!      very long file name
+~CL+SK*foo.bar
+"""
+
+    expect = [
+#        gclient.FileStatus('bleh.cc', 'A', 'B', 'C', 'D', 'E', 'F', 'G'),
+#        gclient.FileStatus('very long file name', '!', ' ', ' ', ' ', ' ', ' ', ' '),
+#        gclient.FileStatus('foo.bar', '~', 'C', 'L', '+', 'S', 'K', '*'),
+    ]
+
+    self.gclient.CaptureSVN(['status'], 'path', False)
+    #.AndReturn(output)
+    self.mox.ReplayAll()
+    result = self.CaptureSVNStatus('path', False)
     self.mox.VerifyAll()
     self.assertEqual(result, expect)
 

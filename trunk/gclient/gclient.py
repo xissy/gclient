@@ -39,6 +39,7 @@ __author__ = "darinf@gmail.com (Darin Fisher)"
 
 import optparse
 import os
+import stat
 import subprocess
 import sys
 import urlparse
@@ -210,6 +211,66 @@ class Error(Exception):
     Exception.__init__(self)
     self.message = message
 
+
+def RemoveDirectory(*path):
+  """Recursively removes a directory, even if it's marked read-only.
+
+  Remove the directory located at *path, if it exists.
+
+  shutil.rmtree() doesn't work on Windows if any of the files or directories
+  are read-only, which svn repositories and some .svn files are.  We need to
+  be able to force the files to be writable (i.e., deletable) as we traverse
+  the tree.
+
+  Even with all this, Windows still sometimes fails to delete a file, citing
+  a permission error (maybe something to do with antivirus scans or disk
+  indexing).  The best suggestion any of the user forums had was to wait a
+  bit and try again, so we do that too.  It's hand-waving, but sometimes it
+  works. :/
+  """
+  file_path = os.path.join(*path)
+  if not os.path.exists(file_path):
+    return
+
+  win32 = False
+  if sys.platform == 'win32':
+    win32 = True
+    # Some people don't have the APIs installed. In that case we'll do without.
+    try:
+      win32api = __import__('win32api')
+      win32con = __import__('win32con')
+    except ImportError:
+      win32 = False
+  for fn in os.listdir(file_path):
+    fullpath = os.path.join(file_path, fn)
+    if os.path.isfile(fullpath):
+      os.chmod(fullpath, stat.S_IWRITE)
+      if win32:
+        win32api.SetFileAttributes(fullpath, win32con.FILE_ATTRIBUTE_NORMAL)
+      try:
+        os.remove(fullpath)
+      except OSError, e:
+        if e.errno != errno.EACCES:
+          raise
+        print 'Failed to delete %s: trying again' % fullpath
+        time.sleep(0.1)
+        os.remove(fullpath)
+    elif os.path.isdir(fullpath):
+      RemoveDirectory(fullpath)
+
+  os.chmod(file_path, stat.S_IWRITE)
+  if win32:
+    win32api.SetFileAttributes(file_path, win32con.FILE_ATTRIBUTE_NORMAL)
+  try:
+    os.rmdir(file_path)
+  except OSError, e:
+    if e.errno != errno.EACCES:
+      raise
+    print 'Failed to remove %s: trying again' % file_path
+    time.sleep(0.1)
+    os.rmdir(file_path)
+
+
 # -----------------------------------------------------------------------------
 # SVN utils:
 
@@ -300,7 +361,46 @@ def CaptureSVNInfo(relpath, in_directory, verbose, capture_svn=CaptureSVN):
       'uuid': str(getText(dom.getElementsByTagName('uuid'))),
       'revision': dom.getElementsByTagName('entry')[0].getAttribute('revision'),
   }
+  return result
 
+
+class FileStatus:
+  def __init__(self, file, status, props, locked, history, switched, repo_locked,
+               out_of_date):
+    self.file = file
+    self.status = status
+    self.props = props
+    self.locked = locked
+    self.history = history
+    self.switched = switched
+    self.repo_locked = repo_locked
+    self.out_of_date = out_of_date
+
+  def __str__(self):
+    return (self.status + self.props + self.locked + self.history +
+            self.switched + self.repo_locked + self.out_of_date +
+            self.file)
+
+
+def CaptureSVNStatus(path, verbose, capture_svn=CaptureSVN):
+  """Runs 'svn status' on an existing path.
+
+  Args:
+    path: The directory to run svn status.
+    verbose: Enables verbose output if true.
+
+  Returns:
+    An array of FileStatus corresponding to the output of 'svn status'
+  """
+  info = capture_svn(["status"], path, verbose)
+  result = []
+  if not info:
+    return result
+  for line in info.splitlines():
+    if line:
+      new_item = FileStatus(line[7:], line[0:1], line[1:2], line[2:3],
+                            line[3:4], line[4:5], line[5:6], line[6:7])
+      result.append(new_item)
   return result
 
 
@@ -879,17 +979,49 @@ def DoDiff(options, args,
   return run_svn_command_for_client_modules("diff", client,
                                             options.verbose, args)
 
+
+def RevertForModule(command, relpath, root_dir, args):
+  """Reverts modifications a single subversion module.
+
+  Args:
+    command: unused.
+    relpath: The directory where the working copy should reside relative
+      to the given root_dir.
+    root_dir: The directory from which relpath is relative.
+    args: list of str - extra arguments to add to the svn command line.
+  """
+  # options.verbose
+  path = os.path.join(root_dir, relpath)
+  files = CaptureSVNStatus(path, False)
+  for file in files:
+    file_path = os.path.join(path, file.file)
+    print file_path
+    # unversioned file or unexpected unversioned file.
+    if file.status in ('?', '~'):
+      # Remove extraneous file. Also remove unexpected unversioned
+      # directories. svn won't touch them but we want to delete these.
+      try:
+        os.remove(file_path)
+      except EnvironmentError:
+        RemoveDirectory(file_path)
+
+    if file.status != '?':
+      # For any other status, svn revert will work.
+      RunSVN(['revert', file_path], path)
+  return True
+
+
 def DoRevert(options, args,
              get_client=GetClient,
-             run_svn_command_for_client_modules=RunSVNCommandForClientModules):
+             run_svn_command_for_client_modules=RunSVNCommandForClientModules,
+             revert_for_module=RevertForModule):
   """Handle the revert subcommand."""
   client = get_client()
   if not client:
     raise Error("client not configured; see 'gclient config'")
-  args.append("--recursive")
-  args.append("*.*")
-  return run_svn_command_for_client_modules("revert", client,
-                                            options.verbose, args)
+  return run_svn_command_for_client_modules("DUMMY", client,
+      options.verbose, args,
+      run_svn_command_for_module=revert_for_module)
 
 
 gclient_command_map = {
