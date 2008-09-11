@@ -992,6 +992,10 @@ def RevertForModule(command, relpath, root_dir, args):
   """
   # options.verbose
   path = os.path.join(root_dir, relpath)
+  if not os.path.isdir(path):
+    # We can't revert path that doesn't exist.
+    return True
+
   files = CaptureSVNStatus(path, False)
   for file in files:
     file_path = os.path.join(path, file.file)
