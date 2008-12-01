@@ -65,6 +65,21 @@ def RootDir(max_elt_count=4, max_elt_length=8):
 
 class GclientTestCase(unittest.TestCase):
   # Like unittest's assertRaises, but checks for Gclient.Error.
+  class Options(object):
+    def __init__(self, verbose=False, force=False, revision=None, spec=None,
+                 relocate=True):
+      self.verbose = verbose
+      self.force = force
+      self.revision = revision
+      self.spec = spec
+      self.relocate = relocate
+      self.stdout = sys.stdout
+      self.path_exists = os.path.exists
+      self.get_client = None
+      self.config_filename = os.environ.get("GCLIENT_FILE", ".gclient")
+      self.entries_filename = ".gclient_entries"
+      self.deps_file = "DEPS"
+      self.platform = sys.platform
 
   def assertRaisesError(self, msg, fn, *args, **kwargs):
     try:
@@ -200,12 +215,6 @@ class TestRunSVNCommandForClientModules(unittest.TestCase):
 
 
 class TestUpdateAll(GclientTestCase):
-  class Options(object):
-    def __init__(self, verbose=False, force=False, revision=None):
-      self.verbose = verbose
-      self.force = force
-      self.revision = revision
-
   def setUp(self):
     self.mox = mox.Mox()
     self.gclient = self.mox.CreateMock(gclient)
@@ -481,11 +490,10 @@ class TestUpdateAll(GclientTestCase):
 
 
 class TestUpdateToURL(GclientTestCase):
-  class Options(object):
+  class Options(GclientTestCase.Options):
     def __init__(self, verbose=False, force=False, relocate=False):
-      self.verbose = verbose
-      self.force = force
-      self.relocate = relocate
+      GclientTestCase.Options.__init__(self, verbose=verbose, force=force,
+                                       relocate=relocate)
 
   def setUp(self):
     self.mox = mox.Mox()
@@ -761,10 +769,6 @@ class TestUpdateToURL(GclientTestCase):
 
 
 class TestDoConfig(GclientTestCase):
-  class Options(object):
-    def __init__(self, a_spec):
-      self.spec = a_spec
-
   def setUp(self):
     self.mox = mox.Mox()
     self.os_path = self.mox.CreateMock(os.path)
@@ -783,7 +787,7 @@ class TestDoConfig(GclientTestCase):
 
     self.mox.ReplayAll()
     self.assertRaisesError(
-        exception_msg, self.do_config, TestDoConfig.Options(None), ())
+        exception_msg, self.do_config, self.Options(), ())
     self.mox.VerifyAll()
 
   def testExistingClientFile(self):
@@ -792,7 +796,7 @@ class TestDoConfig(GclientTestCase):
 
     self.mox.ReplayAll()
     self.assertRaisesError(
-        exception_msg, self.do_config, TestDoConfig.Options(None), (1,),
+        exception_msg, self.do_config, self.Options(), (1,),
         CLIENT_FILE='an_existing_client_file')
     self.mox.VerifyAll()
 
@@ -801,7 +805,7 @@ class TestDoConfig(GclientTestCase):
     self.gclient.CreateClientFileFromText('a_client_file')
 
     self.mox.ReplayAll()
-    self.do_config(TestDoConfig.Options('a_client_file'), (),
+    self.do_config(self.Options(spec='a_client_file'), (),
                    CLIENT_FILE='a_client_file')
     self.mox.VerifyAll()
 
@@ -810,7 +814,7 @@ class TestDoConfig(GclientTestCase):
     self.gclient.CreateClientFile('the_name', 'http://svn/url/the_name')
 
     self.mox.ReplayAll()
-    self.do_config(TestDoConfig.Options(None),
+    self.do_config(TestDoConfig.Options(),
                    ('http://svn/url/the_name', 'other', 'args', 'ignored'),
                    'new_client_file')
     self.mox.VerifyAll()
@@ -847,9 +851,10 @@ class TestDoHelp(GclientTestCase):
 
 
 class TestDoStatus(GclientTestCase):
-  class Options(object):
+  class Options(GclientTestCase.Options):
     def __init__(self):
-      self.verbose = random.choice((True, False))
+      GclientTestCase.Options.__init__(self,
+                                       verbose=random.choice((True, False)))
 
   def setUp(self):
     self.mox = mox.Mox()
@@ -899,11 +904,11 @@ class TestDoStatus(GclientTestCase):
 
 
 class TestDoUpdate(GclientTestCase):
-  class Options(object):
-    def __init__(self):
-      self.verbose = False
-      self.force = random.choice((True, False))
-      self.revision = random.randint(0, 10000000)
+  class Options(GclientTestCase.Options):
+    def __init__(self, verbose=False):
+      GclientTestCase.Options.__init__(self, force=random.choice((True, False)),
+                                       revision=random.randint(0, 10000000),
+                                       verbose=verbose)
 
   def setUp(self):
     self.mox = mox.Mox()
@@ -911,7 +916,7 @@ class TestDoUpdate(GclientTestCase):
 
   def testBasic(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoUpdate.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.UpdateAll(client, options, args).AndReturn(0)
@@ -924,7 +929,7 @@ class TestDoUpdate(GclientTestCase):
 
   def testError(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoUpdate.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.UpdateAll(client, options, args).AndReturn(555)
@@ -937,7 +942,7 @@ class TestDoUpdate(GclientTestCase):
 
   def testBadClient(self):
     client = {}
-    options = TestDoUpdate.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
 
@@ -949,8 +954,7 @@ class TestDoUpdate(GclientTestCase):
 
   def testVerbose(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoUpdate.Options()
-    options.verbose = True
+    options = self.Options(verbose=True)
     args = Args()
     self.stdout = self.mox.CreateMock(sys.stdout)
     self.gclient.GetClient().AndReturn(client)
@@ -967,12 +971,10 @@ class TestDoUpdate(GclientTestCase):
 
 class TestDoDiff(GclientTestCase):
   # TODO(sng): pull out common stuff with TestDoUpdate
-
-  class Options(object):
+  class Options(GclientTestCase.Options):
     def __init__(self):
-      self.verbose = False
-      self.force = random.choice((True, False))
-      self.revision = random.randint(0, 10000000)
+      GclientTestCase.Options.__init__(self, force=random.choice((True, False)),
+                                       revision=random.randint(0, 10000000))
 
   def setUp(self):
     self.mox = mox.Mox()
@@ -980,7 +982,7 @@ class TestDoDiff(GclientTestCase):
 
   def testBasic(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoDiff.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.RunSVNCommandForClientModules(
@@ -994,7 +996,7 @@ class TestDoDiff(GclientTestCase):
 
   def testError(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoDiff.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.RunSVNCommandForClientModules(
@@ -1008,7 +1010,7 @@ class TestDoDiff(GclientTestCase):
 
   def testBadClient(self):
     client = {}
-    options = TestDoDiff.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
 
@@ -1020,7 +1022,7 @@ class TestDoDiff(GclientTestCase):
 
   def testVerbose(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoDiff.Options()
+    options = self.Options()
     options.verbose = True
     args = Args()
     self.stdout = self.mox.CreateMock(sys.stdout)
@@ -1042,18 +1044,13 @@ class TestDoDiff(GclientTestCase):
 
 class TestDoRevert(GclientTestCase):
   # TODO(sng): pull out common stuff with TestDoUpdate
-
-  class Options(object):
-    def __init__(self):
-      self.verbose = False
-
   def setUp(self):
     self.mox = mox.Mox()
     self.gclient = self.mox.CreateMock(gclient)
 
   def testBasic(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoRevert.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.RunSVNCommandForClientModules(
@@ -1069,7 +1066,7 @@ class TestDoRevert(GclientTestCase):
 
   def testError(self):
     client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = TestDoRevert.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
     self.gclient.RunSVNCommandForClientModules(
@@ -1085,7 +1082,7 @@ class TestDoRevert(GclientTestCase):
 
   def testBadClient(self):
     client = {}
-    options = TestDoRevert.Options()
+    options = self.Options()
     args = Args()
     self.gclient.GetClient().AndReturn(client)
 
@@ -1097,16 +1094,15 @@ class TestDoRevert(GclientTestCase):
 
 
 class TestDispatchCommand(GclientTestCase):
-  class Options(object):
+  class Options(GclientTestCase.Options):
     def __init__(self):
-      self.verbose = False
-      self.force = random.choice((True, False))
-      self.revision = random.randint(0, 10000000)
+      GclientTestCase.Options.__init__(self, force=random.choice((True, False)),
+                                       revision=random.randint(0, 10000000))
 
   def setUp(self):
     self.mox = mox.Mox()
     self.gclient = self.mox.CreateMock(gclient)
-    self.options = TestDispatchCommand.Options()
+    self.options = self.Options()
     self.args = Args()
 
   def testBasic(self):
