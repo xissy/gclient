@@ -36,6 +36,7 @@ Files
 """
 
 __author__ = "darinf@gmail.com (Darin Fisher)"
+__version__ = "0.1"
 
 import optparse
 import os
@@ -210,6 +211,24 @@ class Error(Exception):
   def __init__(self, message):
     Exception.__init__(self)
     self.message = message
+
+
+def FileRead(filename):
+  content = None
+  try:
+    f = open(filename, "rU")
+    content = f.read()
+  finally:
+    f.close()
+  return content
+
+
+def FileWrite(filename, content):
+  try:
+    f = open(filename, "w")
+    f.write(content)
+  finally:
+    f.close()
 
 
 def RemoveDirectory(*path):
@@ -545,11 +564,7 @@ def CreateClientFileFromText(text):
   Args:
     text: The text of the .gclient file.
   """
-  try:
-    f = open(CLIENT_FILE, "w")
-    f.write(text)
-  finally:
-    f.close()
+  FileWrite(CLIENT_FILE, text)
 
 
 def CreateClientFile(solution_name, solution_url):
@@ -576,9 +591,7 @@ def CreateClientEntriesFile(client, entries):
   for entry in entries:
     text += "  \"%s\",\n" % entry
   text += "]\n"
-  f = open("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), "w")
-  f.write(text)
-  f.close()
+  FileWrite("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), text)
 
 
 def ReadClientEntriesFile(client):
@@ -595,7 +608,7 @@ def ReadClientEntriesFile(client):
   if not os.path.exists(path):
     return []
   scope = {}
-  execfile(path, scope)
+  exec(FileRead(path), scope)
   return scope["entries"]
 
 
@@ -615,12 +628,8 @@ def GetClient():
     path = next[0]
     client_file = os.path.join(path, CLIENT_FILE)
   client = {}
-  client_fo = open(client_file, 'U')
-  try:
-    client_source = client_fo.read()
-    exec(client_source, client)
-  finally:
-    client_fo.close()
+  client_source = FileRead(client_file)
+  exec(client_source, client)
   # record the root directory and client source for later use
   client["root_dir"] = path
   client["source"] = client_source
@@ -1053,17 +1062,10 @@ def DispatchCommand(command, options, args, command_map=None):
 
 def Main(argv):
   """Parse command line arguments and dispatch command."""
-  if len(argv) < 2:
-    # Don't raise an Error() so as not to alarm people with the
-    # scary string "Error" in the output.  Just mimic svn's message.
-    print "Type 'gclient help' for usage."
-    return 1
 
-  command = argv[1]
-
-  option_parser = optparse.OptionParser()
+  option_parser = optparse.OptionParser(usage=DEFAULT_USAGE_TEXT,
+                                        version=__version__)
   option_parser.disable_interspersed_args()
-  option_parser.set_usage(DEFAULT_USAGE_TEXT)
   option_parser.add_option("", "--force", action="store_true", default=False,
                            help=("(update/sync only) force update even "
                                  "for modules which haven't changed"))
@@ -1079,13 +1081,28 @@ def Main(argv):
   option_parser.add_option("", "--verbose", action="store_true", default=False,
                            help="produce additional output for diagnostics")
 
+  if len(argv) < 2:
+    # Users don't need to be told to use the 'help' command.
+    option_parser.print_help()
+    return 1
+
+  command = argv[1]
   options, args = option_parser.parse_args(argv[2:])
 
   if len(argv) < 3 and command == "help":
     option_parser.print_help()
-    sys.exit(0)
+    return 0
 
+  # These are overridded when testing. They are not externally visible.
+  options.stdout = sys.stdout
+  options.path_exists = os.path.exists
+  options.get_client = GClient
+  options.config_filename = os.environ.get("GCLIENT_FILE", ".gclient")
+  options.entries_filename = ".gclient_entries"
+  options.deps_file = "DEPS"
+  options.platform = sys.platform
   return DispatchCommand(command, options, args)
+
 
 if "__main__" == __name__:
   try:
