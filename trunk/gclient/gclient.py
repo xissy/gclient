@@ -557,339 +557,340 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
 # -----------------------------------------------------------------------------
 # gclient ops:
 
+class GClient(object):
+  @staticmethod
+  def CreateClientFileFromText(text):
+    """Creates a .gclient file in the current directory from the given text.
 
-def CreateClientFileFromText(text):
-  """Creates a .gclient file in the current directory from the given text.
+    Args:
+      text: The text of the .gclient file.
+    """
+    FileWrite(CLIENT_FILE, text)
 
-  Args:
-    text: The text of the .gclient file.
-  """
-  FileWrite(CLIENT_FILE, text)
+  @staticmethod
+  def CreateClientFile(solution_name, solution_url):
+    """Creates a default .gclient file in the current directory.
 
+    Args:
+      solution_name: The name of the solution.
+      solution_url: The svn URL of the solution.
+    """
+    text = DEFAULT_CLIENT_FILE_TEXT % (solution_name, solution_url)
+    CreateClientFileFromText(text)
 
-def CreateClientFile(solution_name, solution_url):
-  """Creates a default .gclient file in the current directory.
+  @staticmethod
+  def CreateClientEntriesFile(client, entries):
+    """Creates a .gclient_entries file to record the list of unique svn checkouts.
 
-  Args:
-    solution_name: The name of the solution.
-    solution_url: The svn URL of the solution.
-  """
-  text = DEFAULT_CLIENT_FILE_TEXT % (solution_name, solution_url)
-  CreateClientFileFromText(text)
+    The .gclient_entries file lives in the same directory as .gclient.
+    
+    Args:
+      client: The client for which the entries file should be written.
+      entries: A sequence of solution names.
+    """
+    text = "entries = [\n"
+    for entry in entries:
+      text += "  \"%s\",\n" % entry
+    text += "]\n"
+    FileWrite("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), text)
 
+  @staticmethod
+  def ReadClientEntriesFile(client):
+    """Read the .gclient_entries file for the given client.
 
-def CreateClientEntriesFile(client, entries):
-  """Creates a .gclient_entries file to record the list of unique svn checkouts.
+    Args:
+      client: The client for which the entries file should be read.
 
-  The .gclient_entries file lives in the same directory as .gclient.
-  
-  Args:
-    client: The client for which the entries file should be written.
-    entries: A sequence of solution names.
-  """
-  text = "entries = [\n"
-  for entry in entries:
-    text += "  \"%s\",\n" % entry
-  text += "]\n"
-  FileWrite("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), text)
+    Returns:
+      A sequence of solution names, which will be empty if there is the
+      entries file hasn't been created yet.
+    """
+    path = os.path.join(client["root_dir"], CLIENT_ENTRIES_FILE)
+    if not os.path.exists(path):
+      return []
+    scope = {}
+    exec(FileRead(path), scope)
+    return scope["entries"]
 
+  @staticmethod
+  def GetClient():
+    """Searches for and loads a .gclient file relative to the current working dir.
 
-def ReadClientEntriesFile(client):
-  """Read the .gclient_entries file for the given client.
-
-  Args:
-    client: The client for which the entries file should be read.
-
-  Returns:
-    A sequence of solution names, which will be empty if there is the
-    entries file hasn't been created yet.
-  """
-  path = os.path.join(client["root_dir"], CLIENT_ENTRIES_FILE)
-  if not os.path.exists(path):
-    return []
-  scope = {}
-  exec(FileRead(path), scope)
-  return scope["entries"]
-
-
-def GetClient():
-  """Searches for and loads a .gclient file relative to the current working dir.
-
-  Returns:
-    A dict representing the contents of the .gclient file or an empty dict if
-    the .gclient file doesn't exist.
-  """
-  path = os.path.realpath(os.curdir)
-  client_file = os.path.join(path, CLIENT_FILE)
-  while not os.path.exists(client_file):
-    next = os.path.split(path)
-    if not next[1]:
-      return {}
-    path = next[0]
+    Returns:
+      A dict representing the contents of the .gclient file or an empty dict if
+      the .gclient file doesn't exist.
+    """
+    path = os.path.realpath(os.curdir)
     client_file = os.path.join(path, CLIENT_FILE)
-  client = {}
-  client_source = FileRead(client_file)
-  exec(client_source, client)
-  # record the root directory and client source for later use
-  client["root_dir"] = path
-  client["source"] = client_source
-  return client
+    while not os.path.exists(client_file):
+      next = os.path.split(path)
+      if not next[1]:
+        return {}
+      path = next[0]
+      client_file = os.path.join(path, CLIENT_FILE)
+    client = {}
+    client_source = FileRead(client_file)
+    exec(client_source, client)
+    # record the root directory and client source for later use
+    client["root_dir"] = path
+    client["source"] = client_source
+    return client
 
 
-class FromImpl:
-  """Used to implement the From syntax."""
+  class FromImpl:
+    """Used to implement the From syntax."""
 
-  def __init__(self, module_name):
-    self.module_name = module_name
+    def __init__(self, module_name):
+      self.module_name = module_name
 
-  def __str__(self):
-    return 'From("%s")' % self.module_name
+    def __str__(self):
+      return 'From("%s")' % self.module_name
 
+  @staticmethod
+  def GetDefaultSolutionDeps(client, solution_name, platform=None,
+                             execf=execfile,
+                             logger=sys.stdout):
+    """Fetches the DEPS file for the specified solution.
 
-def GetDefaultSolutionDeps(client, solution_name, platform=None,
-                           execf=execfile,
-                           logger=sys.stdout):
-  """Fetches the DEPS file for the specified solution.
+    Args:
+      client: The client containing the specified solution.
+      solution_name: The name of the solution to query.
+      platform: os platform (i.e. the output of sys.platform)
+      execf: execfile function for testing
+      logger: stream for user output
 
-  Args:
-    client: The client containing the specified solution.
-    solution_name: The name of the solution to query.
-    platform: os platform (i.e. the output of sys.platform)
-    execf: execfile function for testing
-    logger: stream for user output
-
-  Returns:
-    A dict mapping module names (as relative paths) to svn URLs or an empty
-    dict if the solution does not have a DEPS file.
-  """
-  deps_file = os.path.join(client["root_dir"], solution_name, DEPS_FILE)
-  scope = {"From": FromImpl, "deps_os": {}}
-  try:
-    execf(deps_file, scope)
-  except EnvironmentError:
-    print >> logger, (
-        "\nWARNING: DEPS file not found for solution: %s\n" % solution_name)
-    return {}
-  deps = scope.get("deps", {})
-  # load os specific dependencies if defined.  these dependencies may override
-  # or extend the values defined by the 'deps' member.
-  if platform is None:
-    platform = sys.platform
-  deps_os_key = {
-      "win32": "win",
-      "win": "win",
-      "cygwin": "win",
-      "darwin": "mac",
-      "mac": "mac",
-      "unix": "unix",
-  }.get(platform, "unix")
-  deps.update(scope["deps_os"].get(deps_os_key, {}))
-  return deps
-
-
-def GetAllDeps(client, solution_urls,
-               get_default_solution_deps=GetDefaultSolutionDeps,
-               capture_svn_info=CaptureSVNInfo):
-  """Get the complete list of dependencies for the client.
-
-  Args:
-    client: The client for which to gather dependencies.
-    solution_urls: A dict mapping module names (as relative paths) to svn URLs
-      corresponding to the solutions specified by the client.  This parameter
-      is passed as an optimization.
-
-    get_default_solution_deps: GetDefaultSolutionDeps (for testing)
-    capture_svn_info: CaptureSVNInfo (for testing)
-
-  Returns:
-    A dict mapping module names (as relative paths) to svn URLs corresponding
-    to the entire set of dependencies to checkout for the given client.
-
-  Raises:
-    Error: If a dependency conflicts with another dependency or of a solution.
-  """
-  deps = {}
-  for solution in client["solutions"]:
-    solution_deps = get_default_solution_deps(client, solution["name"])
-    for d in solution_deps:
-      if "custom_deps" in solution and d in solution["custom_deps"]:
-        url = solution["custom_deps"][d]
-        if url is None:
-          continue
-      else:
-        url = solution_deps[d]
-        #
-        # if we have a From reference dependent on another solution, then just
-        # skip the From reference.  when we pull deps for the solution, we will
-        # take care of this dependency.
-        #
-        # If multiple solutions all have the same From reference, then we
-        # should only add one to our list of dependencies.
-        #
-        if type(url) != str:
-          if url.module_name in solution_urls:
-            continue
-          if d in deps and type(deps[d]) != str:
-            if url.module_name == deps[d].module_name:
-              continue
-        else:
-          parsed_url = urlparse.urlparse(url)
-          scheme = parsed_url[0]
-          if not scheme:
-            path = parsed_url[2]
-            if path[0] != "/":
-              raise Error(
-                  "relative DEPS entry \"%s\" must begin with a slash" % d)
-            info = capture_svn_info(solution["url"], client["root_dir"], False)
-            url = info["root"] + url
-      if d in deps and deps[d] != url:
-        raise Error(
-            "solutions have conflicting versions of dependency \"%s\"" % d)
-      if d in solution_urls and solution_urls[d] != url:
-        raise Error(
-            "dependency \"%s\" conflicts with specified solution" % d)
-      deps[d] = url
-  return deps
-
-
-def RunSVNCommandForClientModules(
-    command, client, verbose, args,
-    run_svn_command_for_module=RunSVNCommandForModule,
-    get_all_deps=GetAllDeps):
-  """Runs an svn command on each svn module in a client and its dependencies.
-
-  The module's dependencies are specified in its top-level DEPS files.
-
-  Args:
-    command: The svn command to use (e.g., "status" or "diff")
-    client: The client for which to run the commands.
-    verbose: If true, then print diagnostic output.
-    args: list of str - extra arguments to add to the svn command line.
-    run_svn_command_for_module: RunSVNCommandForModule (for testing)
-    get_all_deps: GetAllDeps (for testing)
-
-  Raises:
-    Error: If the client has conflicting entries.
-  """
-  verbose = verbose  # Suppress lint warning.
-  entries = {}
-
-  # run on the base solutions first
-  for s in client["solutions"]:
-    name = s["name"]
-    if name in entries:
-      raise Error("solution specified more than once")
-    entries[name] = s["url"]
-    run_svn_command_for_module(command, name, client["root_dir"], args)
-
-  # do the module dependencies next (sort alphanumerically for
-  # readability)
-  deps_to_show = get_all_deps(client, entries).keys()
-  deps_to_show.sort()
-  for d in deps_to_show:
-    run_svn_command_for_module(command, d, client["root_dir"], args)
-
-
-def UpdateAll(client, options, args,
-              update_to_url=UpdateToURL,
-              get_all_deps=GetAllDeps,
-              create_client_entries_file=CreateClientEntriesFile,
-              read_client_entries_file=ReadClientEntriesFile,
-              get_default_solution_deps=GetDefaultSolutionDeps,
-              path_exists=os.path.exists,
-              logger=sys.stdout):
-  """Update all solutions and their dependencies.
-
-  Args:
-    client: The client to update.
-    options: Options object; attributes we care about:
-      verbose - If true, then print diagnostic output.
-      force - If true, then also update modules with unchanged repo version.
-      revision - If specified, a string SOLUTION@REV or just REV
-    args: list of str - extra arguments to add to the svn command line.
-
-    update_to_url: dependency (for testing)
-    get_all_deps: dependency (for testing)
-    create_client_entries_file: dependency (for testing)
-    read_client_entries_file: dependency (for testing)
-    get_default_solution_deps: dependency (for testing)
-    path_exists: dependency (for testing)
-    logger: dependency (for testing)
-
-  Raises:
-    Error: If the client has conflicting entries.
-  """
-  entries = {}
-  result = 0
-  # update the solutions first so we can read their dependencies
-  for s in client["solutions"]:
-    name = s["name"]
-    if name in entries:
-      raise Error("solution specified more than once")
-    url = s["url"]
-
-    # Check if we should sync to a given revision
-    if options.revision:
-      url_elem = url.split("@")
-      if options.revision.find("@") == -1:
-        # We want to update all solutions.
-        url = url_elem[0] + "@" + options.revision
-      else:
-        # Check if we want to update this solution.
-        revision_elem = options.revision.split("@")
-        if revision_elem[0] == name:
-          url = url_elem[0] + "@" + revision_elem[1]
-
-    entries[name] = url
-    r = update_to_url(name, url, client["root_dir"], options, args)
-    if r and result == 0:
-      result = r
-
-  # update the dependencies next (sort alphanumerically to ensure that
-  # containing directories get populated first)
-  deps = get_all_deps(client, entries)
-  deps_to_update = deps.keys()
-  deps_to_update.sort()
-  # first pass for explicit deps
-  for d in deps_to_update:
-    if type(deps[d]) == str:
-      entries[d] = deps[d]
-      r = update_to_url(d, deps[d], client["root_dir"], options, args)
-      if r and result == 0:
-        result = r
-  # first pass for inherited deps (via the From keyword)
-  for d in deps_to_update:
-    if type(deps[d]) != str:
-      sub_deps = get_default_solution_deps(client, deps[d].module_name)
-      entries[d] = sub_deps[d]
-      r = update_to_url(d, sub_deps[d], client["root_dir"], options, args)
-      if r and result == 0:
-        result = r
-
-  # notify the user if there is an orphaned entry in their working copy.
-  # TODO(darin): we should delete this directory manually if it doesn't
-  # have any changes in it.
-  prev_entries = read_client_entries_file(client)
-  for entry in prev_entries:
-    e_dir = "%s/%s" % (client["root_dir"], entry)
-    if entry not in entries and path_exists(e_dir):
-      entries[entry] = None  # keep warning until removed
+    Returns:
+      A dict mapping module names (as relative paths) to svn URLs or an empty
+      dict if the solution does not have a DEPS file.
+    """
+    deps_file = os.path.join(client["root_dir"], solution_name, DEPS_FILE)
+    scope = {"From": GClient.FromImpl, "deps_os": {}}
+    try:
+      execf(deps_file, scope)
+    except EnvironmentError:
       print >> logger, (
-          "\nWARNING: \"%s\" is no longer part of this client.  "
-          "It is recommended that you manually remove it.\n") % entry
+          "\nWARNING: DEPS file not found for solution: %s\n" % solution_name)
+      return {}
+    deps = scope.get("deps", {})
+    # load os specific dependencies if defined.  these dependencies may override
+    # or extend the values defined by the 'deps' member.
+    if platform is None:
+      platform = sys.platform
+    deps_os_key = {
+        "win32": "win",
+        "win": "win",
+        "cygwin": "win",
+        "darwin": "mac",
+        "mac": "mac",
+        "unix": "unix",
+    }.get(platform, "unix")
+    deps.update(scope["deps_os"].get(deps_os_key, {}))
+    return deps
 
-  # record the current list of entries for next time
-  create_client_entries_file(client, entries)
+  @staticmethod
+  def GetAllDeps(client, solution_urls,
+                 get_default_solution_deps=GetDefaultSolutionDeps,
+                 capture_svn_info=CaptureSVNInfo):
+    """Get the complete list of dependencies for the client.
 
-  return result
+    Args:
+      client: The client for which to gather dependencies.
+      solution_urls: A dict mapping module names (as relative paths) to svn URLs
+        corresponding to the solutions specified by the client.  This parameter
+        is passed as an optimization.
+
+      get_default_solution_deps: GetDefaultSolutionDeps (for testing)
+      capture_svn_info: CaptureSVNInfo (for testing)
+
+    Returns:
+      A dict mapping module names (as relative paths) to svn URLs corresponding
+      to the entire set of dependencies to checkout for the given client.
+
+    Raises:
+      Error: If a dependency conflicts with another dependency or of a solution.
+    """
+    deps = {}
+    for solution in client["solutions"]:
+      solution_deps = get_default_solution_deps(client, solution["name"])
+      for d in solution_deps:
+        if "custom_deps" in solution and d in solution["custom_deps"]:
+          url = solution["custom_deps"][d]
+          if url is None:
+            continue
+        else:
+          url = solution_deps[d]
+          #
+          # if we have a From reference dependent on another solution, then just
+          # skip the From reference.  when we pull deps for the solution, we will
+          # take care of this dependency.
+          #
+          # If multiple solutions all have the same From reference, then we
+          # should only add one to our list of dependencies.
+          #
+          if type(url) != str:
+            if url.module_name in solution_urls:
+              continue
+            if d in deps and type(deps[d]) != str:
+              if url.module_name == deps[d].module_name:
+                continue
+          else:
+            parsed_url = urlparse.urlparse(url)
+            scheme = parsed_url[0]
+            if not scheme:
+              path = parsed_url[2]
+              if path[0] != "/":
+                raise Error(
+                    "relative DEPS entry \"%s\" must begin with a slash" % d)
+              info = capture_svn_info(solution["url"], client["root_dir"], False)
+              url = info["root"] + url
+        if d in deps and deps[d] != url:
+          raise Error(
+              "solutions have conflicting versions of dependency \"%s\"" % d)
+        if d in solution_urls and solution_urls[d] != url:
+          raise Error(
+              "dependency \"%s\" conflicts with specified solution" % d)
+        deps[d] = url
+    return deps
+
+  @staticmethod
+  def RunSVNCommandForClientModules(
+      command, client, verbose, args,
+      run_svn_command_for_module=RunSVNCommandForModule,
+      get_all_deps=GetAllDeps):
+    """Runs an svn command on each svn module in a client and its dependencies.
+
+    The module's dependencies are specified in its top-level DEPS files.
+
+    Args:
+      command: The svn command to use (e.g., "status" or "diff")
+      client: The client for which to run the commands.
+      verbose: If true, then print diagnostic output.
+      args: list of str - extra arguments to add to the svn command line.
+      run_svn_command_for_module: RunSVNCommandForModule (for testing)
+      get_all_deps: GetAllDeps (for testing)
+
+    Raises:
+      Error: If the client has conflicting entries.
+    """
+    verbose = verbose  # Suppress lint warning.
+    entries = {}
+
+    # run on the base solutions first
+    for s in client["solutions"]:
+      name = s["name"]
+      if name in entries:
+        raise Error("solution specified more than once")
+      entries[name] = s["url"]
+      run_svn_command_for_module(command, name, client["root_dir"], args)
+
+    # do the module dependencies next (sort alphanumerically for
+    # readability)
+    deps_to_show = get_all_deps(client, entries).keys()
+    deps_to_show.sort()
+    for d in deps_to_show:
+      run_svn_command_for_module(command, d, client["root_dir"], args)
+
+  @staticmethod
+  def UpdateAll(client, options, args,
+                update_to_url=UpdateToURL,
+                get_all_deps=GetAllDeps,
+                create_client_entries_file=CreateClientEntriesFile,
+                read_client_entries_file=ReadClientEntriesFile,
+                get_default_solution_deps=GetDefaultSolutionDeps,
+                path_exists=os.path.exists,
+                logger=sys.stdout):
+    """Update all solutions and their dependencies.
+
+    Args:
+      client: The client to update.
+      options: Options object; attributes we care about:
+        verbose - If true, then print diagnostic output.
+        force - If true, then also update modules with unchanged repo version.
+        revision - If specified, a string SOLUTION@REV or just REV
+      args: list of str - extra arguments to add to the svn command line.
+
+      update_to_url: dependency (for testing)
+      get_all_deps: dependency (for testing)
+      create_client_entries_file: dependency (for testing)
+      read_client_entries_file: dependency (for testing)
+      get_default_solution_deps: dependency (for testing)
+      path_exists: dependency (for testing)
+      logger: dependency (for testing)
+
+    Raises:
+      Error: If the client has conflicting entries.
+    """
+    entries = {}
+    result = 0
+    # update the solutions first so we can read their dependencies
+    for s in client["solutions"]:
+      name = s["name"]
+      if name in entries:
+        raise Error("solution specified more than once")
+      url = s["url"]
+
+      # Check if we should sync to a given revision
+      if options.revision:
+        url_elem = url.split("@")
+        if options.revision.find("@") == -1:
+          # We want to update all solutions.
+          url = url_elem[0] + "@" + options.revision
+        else:
+          # Check if we want to update this solution.
+          revision_elem = options.revision.split("@")
+          if revision_elem[0] == name:
+            url = url_elem[0] + "@" + revision_elem[1]
+
+      entries[name] = url
+      r = update_to_url(name, url, client["root_dir"], options, args)
+      if r and result == 0:
+        result = r
+
+    # update the dependencies next (sort alphanumerically to ensure that
+    # containing directories get populated first)
+    deps = get_all_deps(client, entries)
+    deps_to_update = deps.keys()
+    deps_to_update.sort()
+    # first pass for explicit deps
+    for d in deps_to_update:
+      if type(deps[d]) == str:
+        entries[d] = deps[d]
+        r = update_to_url(d, deps[d], client["root_dir"], options, args)
+        if r and result == 0:
+          result = r
+    # first pass for inherited deps (via the From keyword)
+    for d in deps_to_update:
+      if type(deps[d]) != str:
+        sub_deps = get_default_solution_deps(client, deps[d].module_name)
+        entries[d] = sub_deps[d]
+        r = update_to_url(d, sub_deps[d], client["root_dir"], options, args)
+        if r and result == 0:
+          result = r
+
+    # notify the user if there is an orphaned entry in their working copy.
+    # TODO(darin): we should delete this directory manually if it doesn't
+    # have any changes in it.
+    prev_entries = read_client_entries_file(client)
+    for entry in prev_entries:
+      e_dir = "%s/%s" % (client["root_dir"], entry)
+      if entry not in entries and path_exists(e_dir):
+        entries[entry] = None  # keep warning until removed
+        print >> logger, (
+            "\nWARNING: \"%s\" is no longer part of this client.  "
+            "It is recommended that you manually remove it.\n") % entry
+
+    # record the current list of entries for next time
+    create_client_entries_file(client, entries)
+
+    return result
 
 # -----------------------------------------------------------------------------
 
 
 def DoConfig(options, args, client_file=CLIENT_FILE,
              path_exists=os.path.exists,
-             create_client_file_from_text=CreateClientFileFromText,
-             create_client_file=CreateClientFile):
+             create_client_file_from_text=GClient.CreateClientFileFromText,
+             create_client_file=GClient.CreateClientFile):
   """Handle the config subcommand.
 
   Args:
@@ -939,8 +940,8 @@ def DoHelp(options, args,
 
 
 def DoStatus(options, args,
-             get_client=GetClient,
-             run_svn_command_for_client_modules=RunSVNCommandForClientModules):
+             get_client=GClient.GetClient,
+             run_svn_command_for_client_modules=GClient.RunSVNCommandForClientModules):
   """Handle the status subcommand.
 
   Args:
@@ -960,8 +961,8 @@ def DoStatus(options, args,
 
 
 def DoUpdate(options, args,
-             get_client=GetClient,
-             update_all=UpdateAll,
+             get_client=GClient.GetClient,
+             update_all=GClient.UpdateAll,
              output_stream=sys.stdout):
   """Handle the update and sync subcommands."""
   client = get_client()
@@ -975,8 +976,8 @@ def DoUpdate(options, args,
 
 
 def DoDiff(options, args,
-           get_client=GetClient,
-           run_svn_command_for_client_modules=RunSVNCommandForClientModules,
+           get_client=GClient.GetClient,
+           run_svn_command_for_client_modules=GClient.RunSVNCommandForClientModules,
            output_stream=sys.stdout):
   """Handle the diff subcommand."""
   client = get_client()
@@ -1026,8 +1027,8 @@ def RevertForModule(command, relpath, root_dir, args):
 
 
 def DoRevert(options, args,
-             get_client=GetClient,
-             run_svn_command_for_client_modules=RunSVNCommandForClientModules,
+             get_client=GClient.GetClient,
+             run_svn_command_for_client_modules=GClient.RunSVNCommandForClientModules,
              revert_for_module=RevertForModule):
   """Handle the revert subcommand."""
   client = get_client()
@@ -1096,7 +1097,7 @@ def Main(argv):
   # These are overridded when testing. They are not externally visible.
   options.stdout = sys.stdout
   options.path_exists = os.path.exists
-  options.get_client = GClient
+  options.get_client = GClient.GetClient
   options.config_filename = os.environ.get("GCLIENT_FILE", ".gclient")
   options.entries_filename = ".gclient_entries"
   options.deps_file = "DEPS"
