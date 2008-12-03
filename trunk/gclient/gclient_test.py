@@ -167,19 +167,20 @@ class TestRunSVNCommandForClientModules(GclientTestCase):
             get_all_deps=self.gclient_class.GetAllDeps))
 
   def testNoSolutions(self):
-    self.gclient_class.GetAllDeps(
-        {'root_dir': self.root_dir, 'solutions': []}, {}).AndReturn({})
+    client = gclient.GClient(self.root_dir, self.Options())
+    client.config_dict_['solutions'] = []
+    self.gclient_class.GetAllDeps(client, {}).AndReturn({})
 
     self.mox.ReplayAll()
     self.run_svn_command_for_client_modules(
-        'status', {'solutions': [], 'root_dir': self.root_dir}, True,
+        'status', client, True,
         self.args)
     self.mox.VerifyAll()
 
   def testOneSolution(self):
-    client = {'solutions': [{'name': 'solution_name',
-                             'url': 'http://blah'}],
-              'root_dir': self.root_dir}
+    client = gclient.GClient(self.root_dir, self.Options())
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
+                             'url': 'http://blah'}]
 
     self.gclient.RunSVNCommandForModule('diff', 'solution_name',
                                         self.root_dir, self.args)
@@ -200,11 +201,11 @@ class TestRunSVNCommandForClientModules(GclientTestCase):
   def testSolutionSpecifiedTwice(self):
     args = Args()
     root_dir = RootDir()
-    client = {'solutions': [{'name': 'solution_name',
+    client = gclient.GClient(root_dir, self.Options())
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
                              'url': 'http://blah'},
                             {'name': 'solution_name',
-                             'url': 'http://foo'}],
-              'root_dir': root_dir}
+                             'url': 'http://foo'}]
 
     self.gclient.RunSVNCommandForModule(
         'status', 'solution_name', root_dir, args)
@@ -239,7 +240,8 @@ class TestUpdateAll(GclientTestCase):
             logger=self.stdout))
 
   def testNoSolutions(self):
-    client = {'solutions': []}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = []
     entries = {}
 
     self.gclient_class.GetAllDeps(client, entries).AndReturn({})
@@ -252,10 +254,9 @@ class TestUpdateAll(GclientTestCase):
     self.mox.VerifyAll()
 
   def testOneSolution(self):
-    client = {'solutions':
-              [{'name': 'solution_name',
-                'url': 'http://lolcats'}],
-              'root_dir': self.root_dir}
+    client = gclient.GClient(self.root_dir, self.Options())
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
+                'url': 'http://lolcats'}]
     entries = {'solution_name': 'http://lolcats'}
     options = self.Options()
 
@@ -271,12 +272,11 @@ class TestUpdateAll(GclientTestCase):
     self.mox.VerifyAll()
 
   def testOneSolutionError(self):
-    client = {'solutions':
-              [{'name': 'solution_name',
-                'url': 'http://lolcats'}],
-              'root_dir': self.root_dir}
     entries = {'solution_name': 'http://lolcats'}
     options = self.Options()
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
+                'url': 'http://lolcats'}]
 
     self.gclient.UpdateToURL('solution_name', 'http://lolcats', self.root_dir,
                              options, self.args).AndReturn(123)
@@ -290,13 +290,12 @@ class TestUpdateAll(GclientTestCase):
     self.mox.VerifyAll()
 
   def testSolutionSpecifiedMoreThanOnce(self):
-    client = {'solutions':
-              [{'name': 'solution_name',
+    options = self.Options()
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
                 'url': 'http://a_url'},
                {'name': 'solution_name',
-                'url': 'http://another_url'}],
-              'root_dir': self.root_dir}
-    options = self.Options()
+                'url': 'http://another_url'}]
 
     self.gclient.UpdateToURL('solution_name', 'http://a_url', self.root_dir,
                              options, self.args).AndReturn(0)
@@ -308,12 +307,11 @@ class TestUpdateAll(GclientTestCase):
     self.mox.VerifyAll()
 
   def testSyncToGivenRevisionAllSolutions(self):
-    client = {'solutions':
-              [{'name': 'solution_name',
-                'url': 'http://lolcats@revision'}],
-              'root_dir': self.root_dir}
     entries = {'solution_name': 'http://lolcats@123'}
     options = self.Options(revision='123')
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
+                'url': 'http://lolcats@revision'}]
 
     self.gclient.UpdateToURL('solution_name', 'http://lolcats@123',
                              self.root_dir, options, self.args).AndReturn(0)
@@ -327,15 +325,14 @@ class TestUpdateAll(GclientTestCase):
     self.mox.VerifyAll()
 
   def testSyncToGivenRevisionThisSolutionOnly(self):
-    client = {'solutions':
-              [{'name': 'a_solution',
-                'url': 'http://lolcats@change_me'},
-               {'name': 'another_solution',
-                'url': 'http://ytmd@keep_me'}],
-              'root_dir': self.root_dir}
     entries = {'a_solution': 'http://lolcats@new_rev',
                'another_solution': 'http://ytmd@keep_me'}
     options = self.Options(revision='a_solution@new_rev')
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = [{'name': 'a_solution',
+                'url': 'http://lolcats@change_me'},
+               {'name': 'another_solution',
+                'url': 'http://ytmd@keep_me'}]
 
     self.gclient.UpdateToURL('a_solution', 'http://lolcats@new_rev',
                              self.root_dir, options, self.args).AndReturn(0)
@@ -356,10 +353,10 @@ class TestUpdateAll(GclientTestCase):
                   'url': 'http://url1'},
                  {'name': 'solution2',
                   'url': 'http://url2'}]
-    client = {'solutions': solutions,
-              'root_dir': self.root_dir}
     deps = {'solution1': 'http://a_dependency'}
     options = self.Options()
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = solutions
 
     # expected output
     entries = {'solution1': 'http://url1',
@@ -388,8 +385,8 @@ class TestUpdateAll(GclientTestCase):
                   'url': 'http://url1'},
                  {'name': 'solution2',
                   'url': 'http://url2'}]
-    client = {'solutions': solutions,
-              'root_dir': self.root_dir}
+    client = gclient.GClient(self.root_dir, self.Options())
+    client.config_dict_['solutions'] = solutions
 
     class DummyModule(object):
       def __init__(self):
@@ -424,10 +421,6 @@ class TestUpdateAll(GclientTestCase):
     self.mox.VerifyAll()
 
   def testOrphanedEntry(self):
-    client = {'solutions':
-              [{'name': 'solution_name',
-                'url': 'http://lolcats'}],
-              'root_dir': self.root_dir}
     entries = {'solution_name': 'http://lolcats'}
     prev_entries = ['solution_name',
                     'solution_path_doesnt_exist',
@@ -435,6 +428,9 @@ class TestUpdateAll(GclientTestCase):
     entries_with_orphans = entries.copy()
     entries_with_orphans['solution_path_exists'] = None
     options = self.Options()
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = [{'name': 'solution_name',
+                                        'url': 'http://lolcats'}]
 
     self.gclient.UpdateToURL('solution_name', 'http://lolcats', self.root_dir,
                              options, self.args).AndReturn(0)
@@ -464,10 +460,10 @@ class TestUpdateAll(GclientTestCase):
                   'url': 'http://url1'},
                  {'name': 'solution2',
                   'url': 'http://url2'}]
-    client = {'solutions': solutions,
-              'root_dir': self.root_dir}
     deps = {'solution1': 'http://a_dependency'}
     options = self.Options()
+    client = gclient.GClient(self.root_dir, options)
+    client.config_dict_['solutions'] = solutions
 
     # expected output
     entries = {'solution1': 'http://url1',
@@ -876,7 +872,7 @@ class TestDoStatus(GclientTestCase):
     client = {'client': 'my client'}
 
     options = self.Options()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.RunSVNCommandForClientModules('status', client,
                                                options.verbose,
                                                self.args).AndReturn(0)
@@ -889,7 +885,7 @@ class TestDoStatus(GclientTestCase):
     client = {'client': 'my client'}
 
     options = self.Options()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.RunSVNCommandForClientModules('status', client,
                                                options.verbose,
                                                self.args).AndReturn(333)
@@ -899,11 +895,12 @@ class TestDoStatus(GclientTestCase):
     self.mox.VerifyAll()
 
   def testClientNotConfigured(self):
-    self.gclient_class.GetClient().AndReturn({})
+    options = self.Options()
+    self.gclient_class.GetClient(options).AndReturn({})
 
     self.mox.ReplayAll()
     self.assertRaisesError("client not configured; see 'gclient config'",
-                           self.do_status, self.Options(), Args())
+                           self.do_status, options, Args())
     self.mox.VerifyAll()
 
 
@@ -923,7 +920,7 @@ class TestDoUpdate(GclientTestCase):
     client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.UpdateAll(client, options, args).AndReturn(0)
 
     self.mox.ReplayAll()
@@ -936,7 +933,7 @@ class TestDoUpdate(GclientTestCase):
     client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.UpdateAll(client, options, args).AndReturn(555)
 
     self.mox.ReplayAll()
@@ -949,7 +946,7 @@ class TestDoUpdate(GclientTestCase):
     client = {}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
 
     self.mox.ReplayAll()
     self.assertRaisesError(
@@ -958,13 +955,15 @@ class TestDoUpdate(GclientTestCase):
     self.mox.VerifyAll()
 
   def testVerbose(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options(verbose=True)
+    client = gclient.GClient('.', options)
+    client.config_content_ = 'contents of the source file'
+    client.config_dict_['client'] = 'my client'
     args = Args()
     self.stdout = self.mox.CreateMock(sys.stdout)
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
 
-    print >>self.stdout, client['source']
+    print >>self.stdout, client.config_content_
     self.gclient_class.UpdateAll(client, options, args).AndReturn(0)
 
     self.mox.ReplayAll()
@@ -990,7 +989,7 @@ class TestDoDiff(GclientTestCase):
     client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.RunSVNCommandForClientModules(
         'diff', client, options.verbose, args).AndReturn(0)
 
@@ -1004,7 +1003,7 @@ class TestDoDiff(GclientTestCase):
     client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.RunSVNCommandForClientModules(
         'diff', client, options.verbose, args).AndReturn(444)
 
@@ -1018,7 +1017,7 @@ class TestDoDiff(GclientTestCase):
     client = {}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
 
     self.mox.ReplayAll()
     self.assertRaisesError(
@@ -1027,14 +1026,15 @@ class TestDoDiff(GclientTestCase):
     self.mox.VerifyAll()
 
   def testVerbose(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
+    {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
+    client = gclient.GClient('.', options)
     options.verbose = True
     args = Args()
     self.stdout = self.mox.CreateMock(sys.stdout)
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
 
-    print >>self.stdout, client['source']
+    print >>self.stdout, client.config_content_
     self.gclient_class.RunSVNCommandForClientModules(
         'diff', client, options.verbose, args)
 
@@ -1059,7 +1059,7 @@ class TestDoRevert(GclientTestCase):
     client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.RunSVNCommandForClientModules(
         'DUMMY', client, options.verbose, args,
         run_svn_command_for_module=self.gclient.RevertForModule).AndReturn(0)
@@ -1075,7 +1075,7 @@ class TestDoRevert(GclientTestCase):
     client = {'client': 'my client', 'source': 'contents of the source file'}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
     self.gclient_class.RunSVNCommandForClientModules(
         'DUMMY', client, options.verbose, args,
         run_svn_command_for_module=self.gclient.RevertForModule).AndReturn(444)
@@ -1091,7 +1091,7 @@ class TestDoRevert(GclientTestCase):
     client = {}
     options = self.Options()
     args = Args()
-    self.gclient_class.GetClient().AndReturn(client)
+    self.gclient_class.GetClient(options).AndReturn(client)
 
     self.mox.ReplayAll()
     self.assertRaisesError(
@@ -1178,7 +1178,7 @@ class TestGetDefaultSolutionDeps(GclientTestCase):
     __builtin__.execfile = self.save_execfile
 
   def testNoDepsFile(self):
-    client = {'root_dir': '/my/dir'}
+    client = gclient.GClient('/my/dir', self.Options())
 
     def MockExecFile(fname, scope):
       raise IOError('No such file or directory: %s' % repr(fname))
@@ -1192,7 +1192,7 @@ class TestGetDefaultSolutionDeps(GclientTestCase):
     self.assertEqual(result, {})
 
   def testNoDepsDictionary(self):
-    client = {'root_dir': '/my/dir'}
+    client = gclient.GClient('/my/dir', self.Options())
 
     def MockExecFile(fname, scope):
       self.my_execfile_fname = fname
@@ -1205,7 +1205,7 @@ class TestGetDefaultSolutionDeps(GclientTestCase):
     self.assertEqual(result, {})
 
   def testSimpleDepsFile(self):
-    client = {'root_dir': '/my/dir'}
+    client = gclient.GClient('/my/dir', self.Options())
 
     deps = {'component1': 'http:/url1',
             'component2': 'http:/url2'}
@@ -1221,7 +1221,7 @@ class TestGetDefaultSolutionDeps(GclientTestCase):
     self.assertEqual(result, deps)
 
   def testDepsOs(self):
-    client = {'root_dir': '/my/dir'}
+    client = gclient.GClient('/my/dir', self.Options())
 
     deps = {'component1': 'http:/url1'}
     deps_os = {'win': {'component2': 'http:/url2'},
@@ -1303,7 +1303,8 @@ class TestGetAllDeps(GclientTestCase):
                  {'name': 'solution2',
                   'url': 'http://solution2'},
                 ]
-    client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
 
     self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn({})
     self.gclient_class.GetDefaultSolutionDeps(client, 'solution2').AndReturn({})
@@ -1318,7 +1319,8 @@ class TestGetAllDeps(GclientTestCase):
                  {'name': 'solution2',
                   'url': 'http://solution2'},
                 ]
-    client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
 
     deps1 = {'dep1a': 'http://url1a', 'dep1b': 'http://url1b'}
     deps2 = {'dep2a': 'http://url2a', 'dep2b': 'http://url2b'}
@@ -1346,6 +1348,8 @@ class TestGetAllDeps(GclientTestCase):
                  },
                 ]
     client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
 
     deps1 = {'dep1a': 'http://url1a', 'dep1b': 'http://url1b'}
     deps2 = {'dep2a': 'http://url2a', 'dep2b': 'http://url2b'}
@@ -1367,8 +1371,8 @@ class TestGetAllDeps(GclientTestCase):
     root_url = 'http://url1'
     solutions = [{'name': 'solution1',
                   'url': root_url + '/solution1'}]
-    client = {'solutions': solutions,
-              'root_dir': RootDir()}
+    client = gclient.GClient(RootDir(), self.Options())
+    client.config_dict_['solutions'] = solutions
     deps = {'component1': 'http://an/absolute/url/path',
             'component2': '/a/relative/path'}
     svn_info = {'root': root_url}
@@ -1377,7 +1381,7 @@ class TestGetAllDeps(GclientTestCase):
     expected_result['component2'] = root_url + deps['component2']
 
     self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps)
-    self.gclient.CaptureSVNInfo('http://url1/solution1', client['root_dir'],
+    self.gclient.CaptureSVNInfo('http://url1/solution1', client.root_dir,
                                 False).AndReturn(svn_info)
     self.mox.ReplayAll()
     result = self.get_all_deps(client, {})
@@ -1387,7 +1391,8 @@ class TestGetAllDeps(GclientTestCase):
   def testRelativeDepsError(self):
     solutions = [{'name': 'solution1',
                   'url': '/http://url1/solution1'}]
-    client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
     deps = {'component1': 'a/bad/relative/path'}
 
     self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps)
@@ -1405,7 +1410,8 @@ class TestGetAllDeps(GclientTestCase):
                   'url': 'http://solution2',
                  },
                 ]
-    client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
 
     deps1 = {'conflict': 'http://url1'}
     deps2 = {'conflict': 'http://url2'}
@@ -1423,7 +1429,8 @@ class TestGetAllDeps(GclientTestCase):
                   'url': 'http://solution1',
                  },
                 ]
-    client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
 
     deps1 = {'conflict': 'http://url1'}
 
@@ -1439,7 +1446,8 @@ class TestGetAllDeps(GclientTestCase):
                   'url': 'http://solution',
                  },
                 ]
-    client = {'solutions': solutions}
+    client = gclient.GClient('.', self.Options())
+    client.config_dict_['solutions'] = solutions
 
     class From:
       def __init__(self, module_name):
