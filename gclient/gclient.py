@@ -554,10 +554,22 @@ def UpdateToURL(relpath, svnurl, root_dir, options, args,
 
   return run_svn(c, run_dir)
 
-# -----------------------------------------------------------------------------
-# gclient ops:
+## GClient implementation.
 
 class GClient(object):
+  """Object that represent a gclient checkout."""
+
+  supported_commands = ['diff', 'revert', 'status', 'update']
+  
+  def __init__(self, root_dir, options):
+    self.root_dir = root_dir
+    self.options = options
+    self.config_filename = options.config_filename
+    self.entries_filename = options.entries_filename
+    self.deps_file = options.deps_file
+    self.config_content_ = None
+    self.config_dict_ = {}
+
   @staticmethod
   def CreateClientFileFromText(text):
     """Creates a .gclient file in the current directory from the given text.
@@ -592,7 +604,7 @@ class GClient(object):
     for entry in entries:
       text += "  \"%s\",\n" % entry
     text += "]\n"
-    FileWrite("%s/%s" % (client["root_dir"], CLIENT_ENTRIES_FILE), text)
+    FileWrite("%s/%s" % (client.root_dir, CLIENT_ENTRIES_FILE), text)
 
   @staticmethod
   def ReadClientEntriesFile(client):
@@ -605,7 +617,7 @@ class GClient(object):
       A sequence of solution names, which will be empty if there is the
       entries file hasn't been created yet.
     """
-    path = os.path.join(client["root_dir"], CLIENT_ENTRIES_FILE)
+    path = os.path.join(client.root_dir, CLIENT_ENTRIES_FILE)
     if not os.path.exists(path):
       return []
     scope = {}
@@ -613,7 +625,7 @@ class GClient(object):
     return scope["entries"]
 
   @staticmethod
-  def GetClient():
+  def GetClient(options):
     """Searches for and loads a .gclient file relative to the current working dir.
 
     Returns:
@@ -628,12 +640,9 @@ class GClient(object):
         return {}
       path = next[0]
       client_file = os.path.join(path, CLIENT_FILE)
-    client = {}
-    client_source = FileRead(client_file)
-    exec(client_source, client)
-    # record the root directory and client source for later use
-    client["root_dir"] = path
-    client["source"] = client_source
+    client = GClient(path, options)
+    client.config_content_ = FileRead(client_file)
+    exec(client.config_content_, client.config_dict_)
     return client
 
 
@@ -663,7 +672,7 @@ class GClient(object):
       A dict mapping module names (as relative paths) to svn URLs or an empty
       dict if the solution does not have a DEPS file.
     """
-    deps_file = os.path.join(client["root_dir"], solution_name, DEPS_FILE)
+    deps_file = os.path.join(client.root_dir, solution_name, DEPS_FILE)
     scope = {"From": GClient.FromImpl, "deps_os": {}}
     try:
       execf(deps_file, scope)
@@ -710,7 +719,7 @@ class GClient(object):
       Error: If a dependency conflicts with another dependency or of a solution.
     """
     deps = {}
-    for solution in client["solutions"]:
+    for solution in client.config_dict_["solutions"]:
       solution_deps = get_default_solution_deps(client, solution["name"])
       for d in solution_deps:
         if "custom_deps" in solution and d in solution["custom_deps"]:
@@ -741,7 +750,7 @@ class GClient(object):
               if path[0] != "/":
                 raise Error(
                     "relative DEPS entry \"%s\" must begin with a slash" % d)
-              info = capture_svn_info(solution["url"], client["root_dir"], False)
+              info = capture_svn_info(solution["url"], client.root_dir, False)
               url = info["root"] + url
         if d in deps and deps[d] != url:
           raise Error(
@@ -776,19 +785,19 @@ class GClient(object):
     entries = {}
 
     # run on the base solutions first
-    for s in client["solutions"]:
+    for s in client.config_dict_["solutions"]:
       name = s["name"]
       if name in entries:
         raise Error("solution specified more than once")
       entries[name] = s["url"]
-      run_svn_command_for_module(command, name, client["root_dir"], args)
+      run_svn_command_for_module(command, name, client.root_dir, args)
 
     # do the module dependencies next (sort alphanumerically for
     # readability)
     deps_to_show = get_all_deps(client, entries).keys()
     deps_to_show.sort()
     for d in deps_to_show:
-      run_svn_command_for_module(command, d, client["root_dir"], args)
+      run_svn_command_for_module(command, d, client.root_dir, args)
 
   @staticmethod
   def UpdateAll(client, options, args,
@@ -823,7 +832,7 @@ class GClient(object):
     entries = {}
     result = 0
     # update the solutions first so we can read their dependencies
-    for s in client["solutions"]:
+    for s in client.config_dict_["solutions"]:
       name = s["name"]
       if name in entries:
         raise Error("solution specified more than once")
@@ -842,7 +851,7 @@ class GClient(object):
             url = url_elem[0] + "@" + revision_elem[1]
 
       entries[name] = url
-      r = update_to_url(name, url, client["root_dir"], options, args)
+      r = update_to_url(name, url, client.root_dir, options, args)
       if r and result == 0:
         result = r
 
@@ -855,7 +864,7 @@ class GClient(object):
     for d in deps_to_update:
       if type(deps[d]) == str:
         entries[d] = deps[d]
-        r = update_to_url(d, deps[d], client["root_dir"], options, args)
+        r = update_to_url(d, deps[d], client.root_dir, options, args)
         if r and result == 0:
           result = r
     # first pass for inherited deps (via the From keyword)
@@ -863,7 +872,7 @@ class GClient(object):
       if type(deps[d]) != str:
         sub_deps = get_default_solution_deps(client, deps[d].module_name)
         entries[d] = sub_deps[d]
-        r = update_to_url(d, sub_deps[d], client["root_dir"], options, args)
+        r = update_to_url(d, sub_deps[d], client.root_dir, options, args)
         if r and result == 0:
           result = r
 
@@ -872,7 +881,7 @@ class GClient(object):
     # have any changes in it.
     prev_entries = read_client_entries_file(client)
     for entry in prev_entries:
-      e_dir = "%s/%s" % (client["root_dir"], entry)
+      e_dir = "%s/%s" % (client.root_dir, entry)
       if entry not in entries and path_exists(e_dir):
         entries[entry] = None  # keep warning until removed
         print >> logger, (
@@ -953,7 +962,7 @@ def DoStatus(options, args,
   Raises:
     Error: if client isn't configured properly.
   """
-  client = get_client()
+  client = get_client(options)
   if not client:
     raise Error("client not configured; see 'gclient config'")
   return run_svn_command_for_client_modules("status", client,
@@ -965,13 +974,13 @@ def DoUpdate(options, args,
              update_all=GClient.UpdateAll,
              output_stream=sys.stdout):
   """Handle the update and sync subcommands."""
-  client = get_client()
+  client = get_client(options)
   if not client:
     raise Error("client not configured; see 'gclient config'")
   if options.verbose:
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
-    print >>output_stream, client["source"]
+    print >>output_stream, client.config_content_
   return update_all(client, options, args)
 
 
@@ -980,13 +989,13 @@ def DoDiff(options, args,
            run_svn_command_for_client_modules=GClient.RunSVNCommandForClientModules,
            output_stream=sys.stdout):
   """Handle the diff subcommand."""
-  client = get_client()
+  client = get_client(options)
   if not client:
     raise Error("client not configured; see 'gclient config'")
   if options.verbose:
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
-    print >>output_stream, client["source"]
+    print >>output_stream, client.config_content_
   return run_svn_command_for_client_modules("diff", client,
                                             options.verbose, args)
 
@@ -1031,7 +1040,7 @@ def DoRevert(options, args,
              run_svn_command_for_client_modules=GClient.RunSVNCommandForClientModules,
              revert_for_module=RevertForModule):
   """Handle the revert subcommand."""
-  client = get_client()
+  client = get_client(options)
   if not client:
     raise Error("client not configured; see 'gclient config'")
   return run_svn_command_for_client_modules("DUMMY", client,
