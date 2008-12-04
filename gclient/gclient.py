@@ -698,7 +698,7 @@ class GClient(object):
 
   @staticmethod
   def GetAllDeps(client, solution_urls,
-                 get_default_solution_deps=GetDefaultSolutionDeps,
+                 get_default_solution_deps=None,
                  capture_svn_info=CaptureSVNInfo):
     """Get the complete list of dependencies for the client.
 
@@ -720,7 +720,10 @@ class GClient(object):
     """
     deps = {}
     for solution in client.config_dict_["solutions"]:
-      solution_deps = get_default_solution_deps(client, solution["name"])
+      if get_default_solution_deps:
+        solution_deps = get_default_solution_deps(client, solution["name"])
+      else:
+        solution_deps = GClient.GetDefaultSolutionDeps(client, solution["name"])
       for d in solution_deps:
         if "custom_deps" in solution and d in solution["custom_deps"]:
           url = solution["custom_deps"][d]
@@ -765,7 +768,7 @@ class GClient(object):
   def RunSVNCommandForClientModules(
       command, client, verbose, args,
       run_svn_command_for_module=RunSVNCommandForModule,
-      get_all_deps=GetAllDeps):
+      get_all_deps=None):
     """Runs an svn command on each svn module in a client and its dependencies.
 
     The module's dependencies are specified in its top-level DEPS files.
@@ -794,7 +797,10 @@ class GClient(object):
 
     # do the module dependencies next (sort alphanumerically for
     # readability)
-    deps_to_show = get_all_deps(client, entries).keys()
+    if get_all_deps:
+      deps_to_show = get_all_deps(client, entries).keys()
+    else:
+      deps_to_show = GetAllDeps(client, entries).keys()
     deps_to_show.sort()
     for d in deps_to_show:
       run_svn_command_for_module(command, d, client.root_dir, args)
@@ -802,10 +808,10 @@ class GClient(object):
   @staticmethod
   def UpdateAll(client, options, args,
                 update_to_url=UpdateToURL,
-                get_all_deps=GetAllDeps,
-                create_client_entries_file=CreateClientEntriesFile,
-                read_client_entries_file=ReadClientEntriesFile,
-                get_default_solution_deps=GetDefaultSolutionDeps,
+                get_all_deps=None,
+                create_client_entries_file=None,
+                read_client_entries_file=None,
+                get_default_solution_deps=None,
                 path_exists=os.path.exists,
                 logger=sys.stdout):
     """Update all solutions and their dependencies.
@@ -857,7 +863,10 @@ class GClient(object):
 
     # update the dependencies next (sort alphanumerically to ensure that
     # containing directories get populated first)
-    deps = get_all_deps(client, entries)
+    if get_all_deps:
+      deps = get_all_deps(client, entries)
+    else:
+      deps = GClient.GetAllDeps(client, entries)
     deps_to_update = deps.keys()
     deps_to_update.sort()
     # first pass for explicit deps
@@ -870,7 +879,10 @@ class GClient(object):
     # first pass for inherited deps (via the From keyword)
     for d in deps_to_update:
       if type(deps[d]) != str:
-        sub_deps = get_default_solution_deps(client, deps[d].module_name)
+        if get_default_solution_deps:
+          sub_deps = get_default_solution_deps(client, deps[d].module_name)
+        else:
+          sub_deps = GetDefaultSolutionDeps(client, deps[d].module_name)
         entries[d] = sub_deps[d]
         r = update_to_url(d, sub_deps[d], client.root_dir, options, args)
         if r and result == 0:
@@ -879,7 +891,10 @@ class GClient(object):
     # notify the user if there is an orphaned entry in their working copy.
     # TODO(darin): we should delete this directory manually if it doesn't
     # have any changes in it.
-    prev_entries = read_client_entries_file(client)
+    if read_client_entries_file:
+      prev_entries = read_client_entries_file(client)
+    else:
+      prev_entries = GClient.ReadClientEntriesFile(client)
     for entry in prev_entries:
       e_dir = "%s/%s" % (client.root_dir, entry)
       if entry not in entries and path_exists(e_dir):
@@ -889,7 +904,10 @@ class GClient(object):
             "It is recommended that you manually remove it.\n") % entry
 
     # record the current list of entries for next time
-    create_client_entries_file(client, entries)
+    if create_client_entries_file:
+      create_client_entries_file(client, entries)
+    else:
+      GClient.CreateClientEntriesFile(client, entries)
 
     return result
 
