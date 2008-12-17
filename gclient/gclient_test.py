@@ -19,6 +19,7 @@
 __author__ = 'stephen5.ng@gmail.com (Stephen Ng)'
 
 import __builtin__
+import copy
 import os
 import random
 import string
@@ -35,7 +36,7 @@ import gclient
 import mox
 
 
-# Some utilities for generating arbitrary arguments.
+## Some utilities for generating arbitrary arguments.
 
 
 def String(max_length):
@@ -58,29 +59,15 @@ def _DirElts(max_elt_count=4, max_elt_length=8):
 def Dir(max_elt_count=4, max_elt_length=8):
   return random.choice(('/', '')) + _DirElts(max_elt_count, max_elt_length)
 
+def Url(max_elt_count=4, max_elt_length=8):
+  return 'svn://random_host:port/a' + _DirElts(max_elt_count, max_elt_length)
 
 def RootDir(max_elt_count=4, max_elt_length=8):
   return '/' + _DirElts(max_elt_count, max_elt_length)
 
 
-class GclientTestCase(unittest.TestCase):
+class BaseTestCase(unittest.TestCase):
   # Like unittest's assertRaises, but checks for Gclient.Error.
-  class Options(object):
-    def __init__(self, verbose=False, force=False, revision=None, spec=None,
-                 relocate=True):
-      self.verbose = verbose
-      self.force = force
-      self.revision = revision
-      self.spec = spec
-      self.relocate = relocate
-      self.stdout = sys.stdout
-      self.path_exists = os.path.exists
-      self.get_client = None
-      self.config_filename = os.environ.get("GCLIENT_FILE", ".gclient")
-      self.entries_filename = ".gclient_entries"
-      self.deps_file = "DEPS"
-      self.platform = sys.platform
-
   def assertRaisesError(self, msg, fn, *args, **kwargs):
     try:
       fn(*args, **kwargs)
@@ -89,1454 +76,647 @@ class GclientTestCase(unittest.TestCase):
     else:
       self.fail('%s not raised' % msg)
 
+  def Options(self, *args, **kwargs):
+    return self.OptionsObject(self, *args, **kwargs)
 
-class TestRunSVN(GclientTestCase):
   def setUp(self):
     self.mox = mox.Mox()
+    # Mock them to be sure nothing bad happens.
+    gclient.FileRead = self.mox.CreateMockAnything()
+    gclient.FileWrite = self.mox.CreateMockAnything()
+    gclient.RemoveDirectory = self.mox.CreateMockAnything()
+    gclient.RunSVN = self.mox.CreateMockAnything()
+    gclient.CaptureSVN = self.mox.CreateMockAnything()
+    # Doesn't seem to work very well:
+    gclient.os = self.mox.CreateMock(os)
+    gclient.sys = self.mox.CreateMock(sys)
+    gclient.subprocess = self.mox.CreateMock(subprocess)
+
+
+class GclientTestCase(BaseTestCase):
+  class OptionsObject(object):
+    def __init__(self, test_case, verbose=False, spec=None,
+                 config_filename='a_file_name',
+                 entries_filename='a_entry_file_name',
+                 deps_file='a_deps_file_name'):
+      self.verbose = verbose
+      self.spec = spec
+      self.config_filename = config_filename
+      self.entries_filename = entries_filename
+      self.deps_file = deps_file
+      self.revisions = []
+
+      # Mox
+      self.stdout = test_case.stdout
+      self.path_exists = test_case.path_exists
+      self.platform = test_case.platform
+      self.gclient = test_case.gclient
+      self.scm_wrapper = test_case.scm_wrapper
+
+  def setUp(self):
+    BaseTestCase.setUp(self)
     self.stdout = self.mox.CreateMock(sys.stdout)
-    self.subprocess = self.mox.CreateMock(subprocess)
-    self.logger = self.mox.CreateMock(sys.stdout)
-    self.os_path = self.mox.CreateMock(os.path)
+    #self.subprocess = self.mox.CreateMock(subprocess)
+    # Stub os.path.exists.
+    self.path_exists = self.mox.CreateMockAnything()
+    self.sys = self.mox.CreateMock(sys)
+    self.platform = 'darwin'
+
+    self.gclient = self.mox.CreateMock(gclient.GClient)
+    self.scm_wrapper = self.mox.CreateMock(gclient.SCMWrapper)
 
     self.args = Args()
-    self.dir = Dir()
+    self.root_dir = Dir()
+    self.url = Url()
 
-    # The function we want to test with all the dependencies mocked out.
-    self.run_svn = lambda args, dir: gclient.RunSVN(
-        args, dir,
-        self.stdout, self.subprocess.call, self.os_path.realpath)
 
-    # Set shared expectations--every call to RunSVN will make these calls.
-    self.os_path.realpath(self.dir).AndReturn(os.path.realpath(self.dir))
-    self.stdout.write("\n________ running 'svn %s' in '%s'" %
-                      (' '.join(self.args), os.path.realpath(self.dir)))
-    self.stdout.write('\n')
-    self.stdout.flush()
-
-    self.shell_arg = (sys.platform == 'win32')
-
-  def testBasic(self):
-    self.subprocess.call([gclient.SVN_COMMAND] + list(self.args),
-                         cwd=self.dir, shell=self.shell_arg).AndReturn(0)
-
+class GClientCommandsTestCase(BaseTestCase):
+  def testCommands(self):
+    known_commands = [gclient.DoConfig, gclient.DoDiff, gclient.DoHelp,
+                      gclient.DoStatus, gclient.DoUpdate, gclient.DoRevert]
+    for (k,v) in gclient.gclient_command_map.iteritems():
+      # If it fails, you need to add a test case for the new command.
+      self.assert_(v in known_commands)
     self.mox.ReplayAll()
-    result = self.run_svn(self.args, self.dir)
-    self.assertEquals(result, 0)
     self.mox.VerifyAll()
-
-  def testRaiseOnError(self):
-    exception_msg = 'failed to run command: '
-    self.subprocess.call([gclient.SVN_COMMAND] + list(self.args),
-                         cwd=self.dir, shell=self.shell_arg).AndReturn(1)
-
-    self.mox.ReplayAll()
-    self.assertRaisesError(exception_msg + ' '.join(['svn'] + self.args),
-                           self.run_svn, self.args, self.dir)
-    self.mox.VerifyAll()
-
-
-class TestRunSVNCommandForModule(GclientTestCase):
-  def testRunSVNCommandForModule(self):
-    def MockRunSVN(args, in_directory):
-      self.args = args
-      self.in_directory = in_directory
-      return 7
-
-    args = Args()
-    gclient.RunSVN = MockRunSVN
-    result = gclient.RunSVNCommandForModule('status', 'relative/path',
-                                            '/root', args)
-    self.assertEquals(result, 7)
-    self.assertEquals(self.args, ['status'] + args, '/root/relative/path')
-
-
-class TestRunSVNCommandForClientModules(GclientTestCase):
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
-    self.root_dir = RootDir()
-    self.args = Args()
-
-    # Mock out dependencies.
-    self.run_svn_command_for_client_modules = (
-        lambda command, client, verbose, args:
-        gclient.GClient.RunSVNCommandForClientModules(
-            command, client, verbose, args,
-            run_svn_command_for_module=self.gclient.RunSVNCommandForModule,
-            get_all_deps=self.gclient_class.GetAllDeps))
-
-  def testNoSolutions(self):
-    client = gclient.GClient(self.root_dir, self.Options())
-    client.config_dict_['solutions'] = []
-    self.gclient_class.GetAllDeps(client, {}).AndReturn({})
-
-    self.mox.ReplayAll()
-    self.run_svn_command_for_client_modules(
-        'status', client, True,
-        self.args)
-    self.mox.VerifyAll()
-
-  def testOneSolution(self):
-    client = gclient.GClient(self.root_dir, self.Options())
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                             'url': 'http://blah'}]
-
-    self.gclient.RunSVNCommandForModule('diff', 'solution_name',
-                                        self.root_dir, self.args)
-    self.gclient_class.GetAllDeps(
-        client, {'solution_name': 'http://blah'}
-        ).AndReturn({'dep1_key': 'd1_val', 'dep2_key': 'd2_val'})
-
-    # Called once per dependency.
-    self.gclient.RunSVNCommandForModule('diff', 'dep1_key',
-                                        self.root_dir, self.args)
-    self.gclient.RunSVNCommandForModule('diff', 'dep2_key',
-                                        self.root_dir, self.args)
-
-    self.mox.ReplayAll()
-    self.run_svn_command_for_client_modules('diff', client, True, self.args)
-    self.mox.VerifyAll()
-
-  def testSolutionSpecifiedTwice(self):
-    args = Args()
-    root_dir = RootDir()
-    client = gclient.GClient(root_dir, self.Options())
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                             'url': 'http://blah'},
-                            {'name': 'solution_name',
-                             'url': 'http://foo'}]
-
-    self.gclient.RunSVNCommandForModule(
-        'status', 'solution_name', root_dir, args)
-
-    self.mox.ReplayAll()
-    self.assertRaises(gclient.Error, self.run_svn_command_for_client_modules,
-                      'status', client, True, args)
-    self.mox.VerifyAll()
-
-
-class TestUpdateAll(GclientTestCase):
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
-    self.os_path = self.mox.CreateMock(os.path)
-    self.stdout = self.mox.CreateMock(sys.stdout)
-
-    self.args = Args()
-    self.root_dir = RootDir()
-
-    result = self.update_all = (
-        lambda client, options, args:
-        gclient.GClient.UpdateAll(
-            client, options, args,
-            update_to_url=self.gclient.UpdateToURL,
-            create_client_entries_file=self.gclient_class.CreateClientEntriesFile,
-            read_client_entries_file=self.gclient_class.ReadClientEntriesFile,
-            get_default_solution_deps=self.gclient_class.GetDefaultSolutionDeps,
-            get_all_deps=self.gclient_class.GetAllDeps,
-            path_exists=self.os_path.exists,
-            logger=self.stdout))
-
-  def testNoSolutions(self):
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = []
-    entries = {}
-
-    self.gclient_class.GetAllDeps(client, entries).AndReturn({})
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, self.Options(), self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testOneSolution(self):
-    client = gclient.GClient(self.root_dir, self.Options())
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                'url': 'http://lolcats'}]
-    entries = {'solution_name': 'http://lolcats'}
-    options = self.Options()
-
-    self.gclient.UpdateToURL('solution_name', 'http://lolcats', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn({})
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testOneSolutionError(self):
-    entries = {'solution_name': 'http://lolcats'}
-    options = self.Options()
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                'url': 'http://lolcats'}]
-
-    self.gclient.UpdateToURL('solution_name', 'http://lolcats', self.root_dir,
-                             options, self.args).AndReturn(123)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn({})
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 123)
-    self.mox.VerifyAll()
-
-  def testSolutionSpecifiedMoreThanOnce(self):
-    options = self.Options()
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                'url': 'http://a_url'},
-               {'name': 'solution_name',
-                'url': 'http://another_url'}]
-
-    self.gclient.UpdateToURL('solution_name', 'http://a_url', self.root_dir,
-                             options, self.args).AndReturn(0)
-
-    self.mox.ReplayAll()
-    self.assertRaisesError(
-        'solution specified more than once',
-        self.update_all, client, options, self.args)
-    self.mox.VerifyAll()
-
-  def testSyncToGivenRevisionAllSolutions(self):
-    entries = {'solution_name': 'http://lolcats@123'}
-    options = self.Options(revision='123')
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                'url': 'http://lolcats@revision'}]
-
-    self.gclient.UpdateToURL('solution_name', 'http://lolcats@123',
-                             self.root_dir, options, self.args).AndReturn(0)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn({})
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testSyncToGivenRevisionThisSolutionOnly(self):
-    entries = {'a_solution': 'http://lolcats@new_rev',
-               'another_solution': 'http://ytmd@keep_me'}
-    options = self.Options(revision='a_solution@new_rev')
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = [{'name': 'a_solution',
-                'url': 'http://lolcats@change_me'},
-               {'name': 'another_solution',
-                'url': 'http://ytmd@keep_me'}]
-
-    self.gclient.UpdateToURL('a_solution', 'http://lolcats@new_rev',
-                             self.root_dir, options, self.args).AndReturn(0)
-    self.gclient.UpdateToURL('another_solution', 'http://ytmd@keep_me',
-                             self.root_dir, options, self.args).AndReturn(0)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn({})
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testExplicitDep(self):
-    # inputs
-    solutions = [{'name': 'solution1',
-                  'url': 'http://url1'},
-                 {'name': 'solution2',
-                  'url': 'http://url2'}]
-    deps = {'solution1': 'http://a_dependency'}
-    options = self.Options()
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = solutions
-
-    # expected output
-    entries = {'solution1': 'http://url1',
-               'solution2': 'http://url2'}
-    entries_with_deps = {'solution1': 'http://a_dependency',
-                         'solution2': 'http://url2'}
-
-    self.gclient.UpdateToURL('solution1', 'http://url1', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient.UpdateToURL('solution2', 'http://url2', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn(deps)
-    self.gclient.UpdateToURL('solution1', 'http://a_dependency', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries_with_deps)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testInheritedDep(self):
-    # inputs
-    solutions = [{'name': 'solution1',
-                  'url': 'http://url1'},
-                 {'name': 'solution2',
-                  'url': 'http://url2'}]
-    client = gclient.GClient(self.root_dir, self.Options())
-    client.config_dict_['solutions'] = solutions
-
-    class DummyModule(object):
-      def __init__(self):
-        self.module_name = 'my_module'
-
-    deps = {'solution1': DummyModule()}
-    default_solution_dep = {'solution1':
-                            'http://default_solution_dep'}
-
-    # expected output
-    entries = {'solution1': 'http://url1',
-               'solution2': 'http://url2'}
-    entries_with_deps = {'solution1': 'http://default_solution_dep',
-                         'solution2': 'http://url2'}
-    options = self.Options()
-
-    self.gclient.UpdateToURL('solution1', 'http://url1', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient.UpdateToURL('solution2', 'http://url2', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn(deps)
-    self.gclient_class.GetDefaultSolutionDeps(
-        client, 'my_module').AndReturn(default_solution_dep)
-    self.gclient.UpdateToURL('solution1', 'http://default_solution_dep',
-                             self.root_dir, options, self.args).AndReturn(0)
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries_with_deps)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testOrphanedEntry(self):
-    entries = {'solution_name': 'http://lolcats'}
-    prev_entries = ['solution_name',
-                    'solution_path_doesnt_exist',
-                    'solution_path_exists']
-    entries_with_orphans = entries.copy()
-    entries_with_orphans['solution_path_exists'] = None
-    options = self.Options()
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = [{'name': 'solution_name',
-                                        'url': 'http://lolcats'}]
-
-    self.gclient.UpdateToURL('solution_name', 'http://lolcats', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn({})
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn(prev_entries)
-
-    # We don't use os.path.join() to construct these path names because
-    # Subversion canonicalizes everything to normal / path separators.
-    self.os_path.exists(
-        self.root_dir + '/solution_path_doesnt_exist'
-        ).AndReturn(False)
-    self.os_path.exists(self.root_dir + '/solution_path_exists').AndReturn(True)
-
-    print >>self.stdout, ('\nWARNING: "%s" is no longer part of this client.  '
-                          'It is recommended that you manually remove it.\n'
-                         ) % 'solution_path_exists'
-    self.gclient_class.CreateClientEntriesFile(client, entries_with_orphans)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testMultipleSolutionError(self):
-    # inputs
-    solutions = [{'name': 'solution1',
-                  'url': 'http://url1'},
-                 {'name': 'solution2',
-                  'url': 'http://url2'}]
-    deps = {'solution1': 'http://a_dependency'}
-    options = self.Options()
-    client = gclient.GClient(self.root_dir, options)
-    client.config_dict_['solutions'] = solutions
-
-    # expected output
-    entries = {'solution1': 'http://url1',
-               'solution2': 'http://url2'}
-    entries_with_deps = {'solution1': 'http://a_dependency',
-                         'solution2': 'http://url2'}
-
-    self.gclient.UpdateToURL('solution1', 'http://url1', self.root_dir,
-                             options, self.args).AndReturn(0)
-    self.gclient.UpdateToURL('solution2', 'http://url2', self.root_dir,
-                             options, self.args).AndReturn(789)
-    self.gclient_class.GetAllDeps(client, entries).AndReturn(deps)
-    self.gclient.UpdateToURL('solution1', 'http://a_dependency', self.root_dir,
-                             options, self.args).AndReturn(678)
-    self.gclient_class.ReadClientEntriesFile(client).AndReturn([])
-    self.gclient_class.CreateClientEntriesFile(client, entries_with_deps)
-
-    self.mox.ReplayAll()
-    result = self.update_all(client, options, self.args)
-    self.assertEquals(result, 789)
-    self.mox.VerifyAll()
-
-
-class TestUpdateToURL(GclientTestCase):
-  class Options(GclientTestCase.Options):
-    def __init__(self, verbose=False, force=False, relocate=False):
-      GclientTestCase.Options.__init__(self, verbose=verbose, force=force,
-                                       relocate=relocate)
-
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.os_path = self.mox.CreateMock(os.path)
-    self.stdout = self.mox.CreateMock(sys.stdout)
-
-    # Common fake data used by the individual tests.
-    self.rel = 'relative_path'
-    self.root = 'root_directory'
-    self.rootpath = os.path.join(self.root, self.rel)
-    self.git_path = os.path.join(self.rootpath, '.git')
-    self.url_rev = 'http://svn/trunk@123'
-    self.url, self.rev = self.url_rev.split('@')
-    self.uuid = 'a-fake-UUID-value'
-    self.root_url = 'http://svn'
-    self.svn_info = {'url': self.url,
-                     'root': self.root_url,
-                     'uuid': self.uuid,
-                     'revision': self.rev,
-                    }
-
-    self.update_to_url = (
-        lambda relpath, svnurl, root_dir, options, args:
-        gclient.UpdateToURL(
-            relpath, svnurl, root_dir, options, args,
-            output_stream=self.stdout,
-            path_exists=self.os_path.exists,
-            capture_svn_info=self.gclient.CaptureSVNInfo,
-            run_svn=self.gclient.RunSVN))
-
-  def testSimpleCall(self):
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(False)
-    self.gclient.RunSVN(['checkout', self.url_rev, self.rel],
-                        self.root).AndReturn(0)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, self.url_rev, self.root,
-                                self.Options(), None)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testCallWithArguments(self):
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(False)
-    self.gclient.RunSVN(['checkout', self.url_rev, self.rel, 'arg1', 'arg2'],
-                        self.root).AndReturn(7)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, self.url_rev, self.root,
-                                self.Options(), ['arg1', 'arg2'])
-    self.assertEquals(result, 7)
-    self.mox.VerifyAll()
-
-  def testRelativeError(self):
-    exception_msg = ("Couldn't get URL for relative path: "
-                     "'%s' under root directory: %s.\n"
-                     '\tSVN URL was:\n\t\t%s\n'
-                     '\tInfo dict was:\n\t\t{}'
-                     % (self.rel, self.root, self.url_rev))
-
-    # Have CaptureSVNInfo() simulate an "svn info" error by returning
-    # an empty dictionary.
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(self.rel, self.root, False).AndReturn({})
-
-    self.mox.ReplayAll()
-    self.assertRaisesError(
-        exception_msg, self.update_to_url, self.rel, self.url_rev, self.root,
-        self.Options(), None)
-    self.mox.VerifyAll()
-
-  def testSwitch(self):
-    url = 'svn://new_svn/trunk'
-
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.CaptureSVNInfo(url, self.root, False).AndReturn(self.svn_info)
-    self.gclient.RunSVN(['switch', url, self.rel], self.root).AndReturn(3)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, url, self.root, self.Options(), None)
-    self.assertEquals(result, 3)
-    self.mox.VerifyAll()
-
-  def testSwitchRelocateBranch(self):
-    url_rev = 'svn://new_svn/branches/foo@789'
-    url, rev = url_rev.split('@')
-    root_url = 'svn://new_svn'
-    info = {'url': url,
-            'root': root_url,
-            'uuid': self.uuid,
-            'revision': rev,
-           }
-
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.CaptureSVNInfo(url_rev, self.root, False).AndReturn(info)
-    self.gclient.RunSVN(['switch', '--relocate', self.root_url, root_url,
-                         self.rel], self.root).AndReturn(0)
-    self.gclient.RunSVN(['switch', '-r', rev, url, self.rel],
-                        self.root).AndReturn(17)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, url_rev, self.root,
-                                self.Options(relocate=True), None)
-    self.assertEquals(result, 17)
-    self.mox.VerifyAll()
-
-  def testSwitchRelocateTrunk(self):
-    url_rev = 'svn://new_svn/trunk@789'
-    url, rev = url_rev.split('@')
-    root_url = 'svn://new_svn'
-    info = {'url': url,
-            'root': root_url,
-            'uuid': self.uuid,
-            'revision': rev,
-           }
-
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.CaptureSVNInfo(url_rev, self.root, False).AndReturn(info)
-    self.gclient.RunSVN(['switch', '--relocate', self.root_url, root_url,
-                         self.rel], self.root).AndReturn(0)
-    self.gclient.RunSVN(['update', '-r', rev], self.rootpath).AndReturn(123)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, url_rev, self.root,
-                                self.Options(relocate=True), None)
-    self.assertEquals(result, 123)
-    self.mox.VerifyAll()
-
-  def testSwitchRelocateDifferentUUID(self):
-    url_rev = 'svn://new_svn/trunk@789'
-    url, rev = url_rev.split('@')
-    info = {'url': url,
-            'root': 'svn://new_svn',
-            'uuid': 'a-different-UUID-value',
-            'revision': rev,
-           }
-
-    expected_message = ('Skipping update to %s;\n'
-                        '\tcan not relocate to URL with different Repository '
-                        'UUID.\n' % (url_rev))
-
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.CaptureSVNInfo(url_rev, self.root, False).AndReturn(info)
-    self.stdout.write(expected_message)
-    self.stdout.write('\n')
-
-    self.mox.ReplayAll()
-    self.update_to_url(self.rel, url_rev, self.root, self.Options(), None)
-    self.mox.VerifyAll()
-
-  def testSwitchNoRelocateOption(self):
-    url_rev = 'svn://new_svn/trunk@789'
-    url, rev = url_rev.split('@')
-    info = {'url': url,
-            'root': 'svn://new_svn',
-            'uuid': self.uuid,
-            'revision': rev,
-           }
-
-    expected_message = ('Skipping update to %s;\n'
-                        '\tuse the --relocate option to switch\n'
-                        '\tfrom %s\n'
-                        '\tto   %s.\n'
-                        % (url_rev, self.url, url))
-
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.CaptureSVNInfo(url_rev, self.root, False).AndReturn(info)
-    self.stdout.write(expected_message)
-    self.stdout.write('\n')
-
-    self.mox.ReplayAll()
-    self.update_to_url(self.rel, url_rev, self.root, self.Options(), None)
-    self.mox.VerifyAll()
-
-  def testSwitchRevision(self):
-    url_rev = 'svn://new_svn/trunk@789'
-    url, rev = url_rev.split('@')
-
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.CaptureSVNInfo(
-        url_rev, self.root, False).AndReturn(self.svn_info)
-    self.gclient.RunSVN(['switch', '-r', rev, url, self.rel],
-                        self.root).AndReturn(234)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, url_rev, self.root,
-                                self.Options(), None)
-    self.assertEquals(result, 234)
-    self.mox.VerifyAll()
-
-  def testUpdate(self):
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.RunSVN(['update'], self.rootpath).AndReturn(345)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, self.url, self.root,
-                                self.Options(), None)
-    self.assertEquals(result, 345)
-    self.mox.VerifyAll()
-
-  def testMatchingRevision(self):
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-
-    self.mox.ReplayAll()
-    self.update_to_url(self.rel, self.url_rev, self.root, self.Options(), None)
-    self.mox.VerifyAll()
-
-  def testMatchingRevisionForce(self):
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, False).AndReturn(self.svn_info)
-    self.gclient.RunSVN(['update', '-r', '123'], self.rootpath).AndReturn(456)
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, self.url_rev, self.root,
-                                self.Options(force=True), None)
-    self.assertEquals(result, 456)
-    self.mox.VerifyAll()
-
-  def testMatchingRevisionVerbose(self):
-    self.os_path.exists(self.git_path).AndReturn(False)
-    self.os_path.exists(self.rootpath).AndReturn(True)
-    self.gclient.CaptureSVNInfo(
-        self.rel, self.root, True).AndReturn(self.svn_info)
-    self.stdout.write('\n_____ %(url)s at %(revision)s' % self.svn_info)
-    self.stdout.write('\n')
-
-    self.mox.ReplayAll()
-    self.update_to_url(self.rel, self.url_rev, self.root,
-                       self.Options(verbose=True), None)
-    self.mox.VerifyAll()
-
-  def testGitPath(self):
-    self.os_path.exists(self.git_path).AndReturn(True)
-    self.stdout.write(
-        '________ found .git directory; skipping relative_path')
-    self.stdout.write('\n')
-
-    self.mox.ReplayAll()
-    result = self.update_to_url(self.rel, self.url_rev, self.root,
-                                self.Options(), None)
-    self.assertEquals(result, None)
-    self.mox.VerifyAll()
-
 
 
 class TestDoConfig(GclientTestCase):
   def setUp(self):
-    self.mox = mox.Mox()
-    self.os_path = self.mox.CreateMock(os.path)
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
-
-    # Call the function to be tested, mocking out all the dependencies.
-    self.do_config = (
-        lambda options, args, CLIENT_FILE=gclient.CLIENT_FILE: gclient.DoConfig(
-            options, args, CLIENT_FILE,
-            path_exists=self.os_path.exists,
-            create_client_file=self.gclient_class.CreateClientFile,
-            create_client_file_from_text=self.gclient_class.CreateClientFileFromText))
+    GclientTestCase.setUp(self)
+    # pymox has trouble to mock the class object and not a class instance.
+    self.gclient = self.mox.CreateMockAnything()
 
   def testMissingArgument(self):
     exception_msg = "required argument missing; see 'gclient help config'"
 
     self.mox.ReplayAll()
-    self.assertRaisesError(
-        exception_msg, self.do_config, self.Options(), ())
+    self.assertRaisesError(exception_msg, gclient.DoConfig, self.Options(), ())
     self.mox.VerifyAll()
 
   def testExistingClientFile(self):
-    exception_msg = '.gclient file already exists in the current directory'
-    self.os_path.exists('an_existing_client_file').AndReturn(True)
+    options = self.Options()
+    exception_msg = ('%s file already exists in the current directory' %
+                        options.config_filename)
+    self.path_exists(options.config_filename).AndReturn(True)
 
     self.mox.ReplayAll()
-    self.assertRaisesError(
-        exception_msg, self.do_config, self.Options(), (1,),
-        CLIENT_FILE='an_existing_client_file')
+    self.assertRaisesError(exception_msg, gclient.DoConfig, options, (1,))
     self.mox.VerifyAll()
 
   def testFromText(self):
-    self.os_path.exists('a_client_file').AndReturn(False)
-    self.gclient_class.CreateClientFileFromText('a_client_file')
+    options = self.Options(spec='config_source_content')
+    options.path_exists(options.config_filename).AndReturn(False)
+    options.gclient('.', options).AndReturn(options.gclient)
+    options.gclient.SetConfig(options.spec)
+    options.gclient.SaveConfig()
 
     self.mox.ReplayAll()
-    self.do_config(self.Options(spec='a_client_file'), (),
-                   CLIENT_FILE='a_client_file')
+    gclient.DoConfig(options, (1,),)
     self.mox.VerifyAll()
 
   def testCreateClientFile(self):
-    self.os_path.exists('new_client_file').AndReturn(False)
-    self.gclient_class.CreateClientFile('the_name', 'http://svn/url/the_name')
+    options = self.Options()
+    options.path_exists(options.config_filename).AndReturn(False)
+    options.gclient('.', options).AndReturn(options.gclient)
+    options.gclient.SetDefaultConfig('the_name', 'http://svn/url/the_name')
+    options.gclient.SaveConfig()
 
     self.mox.ReplayAll()
-    self.do_config(TestDoConfig.Options(),
-                   ('http://svn/url/the_name', 'other', 'args', 'ignored'),
-                   'new_client_file')
+    gclient.DoConfig(options,
+                     ('http://svn/url/the_name', 'other', 'args', 'ignored'))
     self.mox.VerifyAll()
 
 
 class TestDoHelp(GclientTestCase):
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.stdout = self.mox.CreateMock(sys.stdout)
-    self.gclient = self.mox.CreateMock(gclient)
-
-    # Call the function to be tested, mocking out all the dependencies.
-    self.do_help = lambda options, args: gclient.DoHelp(
-        options, args, output_stream=self.stdout)
-
   def testGetUsage(self):
-    print >> self.stdout, gclient.COMMAND_USAGE_TEXT['config']
+    options = self.Options()
+    print >> options.stdout, gclient.COMMAND_USAGE_TEXT['config']
 
     self.mox.ReplayAll()
-    self.do_help(None, ('config',))
+    gclient.DoHelp(options, ('config',))
     self.mox.VerifyAll()
 
   def testTooManyArgs(self):
+    options = self.Options()
     self.mox.ReplayAll()
     self.assertRaisesError("unknown subcommand; see 'gclient help'",
-                           self.do_help, None, ('config', 'another argument'))
+                           gclient.DoHelp, options, ('config',
+                                                     'another argument'))
     self.mox.VerifyAll()
 
   def testUnknownSubcommand(self):
+    options = self.Options()
     self.mox.ReplayAll()
     self.assertRaisesError("unknown subcommand; see 'gclient help'",
-                           self.do_help, None, ('xyzzy',))
+                           gclient.DoHelp, options, ('xyzzy',))
     self.mox.VerifyAll()
 
 
-class TestDoStatus(GclientTestCase):
-  class Options(GclientTestCase.Options):
-    def __init__(self):
-      GclientTestCase.Options.__init__(self,
-                                       verbose=random.choice((True, False)))
-
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
-    self.args = Args()
-
-    # Call the function to be tested, mocking out all the dependencies.
-    self.do_status = (
-        lambda options, args:
-        gclient.DoStatus(options, args,
-                         self.gclient_class.GetClient,
-                         self.gclient_class.RunSVNCommandForClientModules))
-
-  def testGoodClient(self):
-    client = {'client': 'my client'}
-
+class GenericCommandTestCase(GclientTestCase):
+  def ReturnValue(self, command, function, return_value):
     options = self.Options()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.RunSVNCommandForClientModules('status', client,
-                                               options.verbose,
-                                               self.args).AndReturn(0)
-    self.mox.ReplayAll()
-    result = self.do_status(options, self.args)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testError(self):
-    client = {'client': 'my client'}
-
-    options = self.Options()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.RunSVNCommandForClientModules('status', client,
-                                               options.verbose,
-                                               self.args).AndReturn(333)
-    self.mox.ReplayAll()
-    result = self.do_status(options, self.args)
-    self.assertEquals(result, 333)
-    self.mox.VerifyAll()
-
-  def testClientNotConfigured(self):
-    options = self.Options()
-    self.gclient_class.GetClient(options).AndReturn({})
+    self.gclient.LoadCurrentConfig(options).AndReturn(self.gclient)
+    self.gclient.RunOnDeps(command, self.args).AndReturn(return_value)
 
     self.mox.ReplayAll()
-    self.assertRaisesError("client not configured; see 'gclient config'",
-                           self.do_status, options, Args())
+    result = function(options, self.args)
+    self.assertEquals(result, return_value)
     self.mox.VerifyAll()
 
-
-class TestDoUpdate(GclientTestCase):
-  class Options(GclientTestCase.Options):
-    def __init__(self, verbose=False):
-      GclientTestCase.Options.__init__(self, force=random.choice((True, False)),
-                                       revision=random.randint(0, 10000000),
-                                       verbose=verbose)
-
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
-
-  def testBasic(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
+  def BadClient(self, function):
     options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.UpdateAll(client, options, args).AndReturn(0)
-
-    self.mox.ReplayAll()
-    result = gclient.DoUpdate(options, args, self.gclient_class.GetClient,
-                              self.gclient_class.UpdateAll)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
-  def testError(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.UpdateAll(client, options, args).AndReturn(555)
-
-    self.mox.ReplayAll()
-    result = gclient.DoUpdate(options, args, self.gclient_class.GetClient,
-                              self.gclient_class.UpdateAll)
-    self.assertEquals(result, 555)
-    self.mox.VerifyAll()
-
-  def testBadClient(self):
-    client = {}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
+    self.gclient.LoadCurrentConfig(options).AndReturn(None)
 
     self.mox.ReplayAll()
     self.assertRaisesError(
         "client not configured; see 'gclient config'",
-        gclient.DoUpdate, options, args, self.gclient_class.GetClient)
+        function, options, self.args)
     self.mox.VerifyAll()
 
-  def testVerbose(self):
+  def Verbose(self, command, function):
     options = self.Options(verbose=True)
-    client = gclient.GClient('.', options)
-    client.config_content_ = 'contents of the source file'
-    client.config_dict_['client'] = 'my client'
-    args = Args()
-    self.stdout = self.mox.CreateMock(sys.stdout)
-    self.gclient_class.GetClient(options).AndReturn(client)
-
-    print >>self.stdout, client.config_content_
-    self.gclient_class.UpdateAll(client, options, args).AndReturn(0)
+    self.gclient.LoadCurrentConfig(options).AndReturn(self.gclient)
+    text = "# Dummy content\nclient = 'my client'"
+    self.gclient.ConfigContent().AndReturn(text)
+    print >>self.stdout, text
+    self.gclient.RunOnDeps(command, self.args).AndReturn(0)
 
     self.mox.ReplayAll()
-    result = gclient.DoUpdate(options, args, self.gclient_class.GetClient,
-                              self.gclient_class.UpdateAll, self.stdout)
+    result = function(options, self.args)
     self.assertEquals(result, 0)
     self.mox.VerifyAll()
 
 
-class TestDoDiff(GclientTestCase):
-  # TODO(sng): pull out common stuff with TestDoUpdate
-  class Options(GclientTestCase.Options):
-    def __init__(self):
-      GclientTestCase.Options.__init__(self, force=random.choice((True, False)),
-                                       revision=random.randint(0, 10000000))
+class TestDoStatus(GenericCommandTestCase):
+  def Options(self, verbose=False, *args, **kwargs):
+    return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
+  
+  def testGoodClient(self):
+    self.ReturnValue('status', gclient.DoStatus, 0)
+  def testError(self):
+    self.ReturnValue('status', gclient.DoStatus, 42)
+  def testBadClient(self):
+    self.BadClient(gclient.DoStatus)
 
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
+
+class TestDoUpdate(GenericCommandTestCase):
+  def Options(self, verbose=False, *args, **kwargs):
+    return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
 
   def testBasic(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.RunSVNCommandForClientModules(
-        'diff', client, options.verbose, args).AndReturn(0)
-
-    self.mox.ReplayAll()
-    result = gclient.DoDiff(options, args, self.gclient_class.GetClient,
-                            self.gclient_class.RunSVNCommandForClientModules)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
+    self.ReturnValue('update', gclient.DoUpdate, 0)
   def testError(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.RunSVNCommandForClientModules(
-        'diff', client, options.verbose, args).AndReturn(444)
-
-    self.mox.ReplayAll()
-    result = gclient.DoDiff(options, args, self.gclient_class.GetClient,
-                            self.gclient_class.RunSVNCommandForClientModules)
-    self.assertEquals(result, 444)
-    self.mox.VerifyAll()
-
+    self.ReturnValue('update', gclient.DoUpdate, 42)
   def testBadClient(self):
-    client = {}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-
-    self.mox.ReplayAll()
-    self.assertRaisesError(
-        "client not configured; see 'gclient config'",
-        gclient.DoDiff, options, args, self.gclient_class.GetClient)
-    self.mox.VerifyAll()
-
+    self.BadClient(gclient.DoUpdate)
   def testVerbose(self):
-    {'client': 'my client', 'source': 'contents of the source file'}
-    options = self.Options()
-    client = gclient.GClient('.', options)
-    options.verbose = True
-    args = Args()
-    self.stdout = self.mox.CreateMock(sys.stdout)
-    self.gclient_class.GetClient(options).AndReturn(client)
-
-    print >>self.stdout, client.config_content_
-    self.gclient_class.RunSVNCommandForClientModules(
-        'diff', client, options.verbose, args)
-
-    self.mox.ReplayAll()
-    gclient.DoDiff(
-        options, args,
-        self.gclient_class.GetClient,
-        run_svn_command_for_client_modules=
-        self.gclient_class.RunSVNCommandForClientModules,
-        output_stream=self.stdout)
-    self.mox.VerifyAll()
+    self.Verbose('update', gclient.DoUpdate)
 
 
-class TestDoRevert(GclientTestCase):
-  # TODO(sng): pull out common stuff with TestDoUpdate
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
+class TestDoDiff(GenericCommandTestCase):
+  def Options(self, *args, **kwargs):
+      return self.OptionsObject(self, *args, **kwargs)
 
   def testBasic(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.RunSVNCommandForClientModules(
-        'DUMMY', client, options.verbose, args,
-        run_svn_command_for_module=self.gclient.RevertForModule).AndReturn(0)
-
-    self.mox.ReplayAll()
-    result = gclient.DoRevert(options, args, self.gclient_class.GetClient,
-                              self.gclient_class.RunSVNCommandForClientModules,
-                              revert_for_module=self.gclient.RevertForModule)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
+    self.ReturnValue('diff', gclient.DoDiff, 0)
   def testError(self):
-    client = {'client': 'my client', 'source': 'contents of the source file'}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-    self.gclient_class.RunSVNCommandForClientModules(
-        'DUMMY', client, options.verbose, args,
-        run_svn_command_for_module=self.gclient.RevertForModule).AndReturn(444)
-
-    self.mox.ReplayAll()
-    result = gclient.DoRevert(options, args, self.gclient_class.GetClient,
-                              self.gclient_class.RunSVNCommandForClientModules,
-                              revert_for_module=self.gclient.RevertForModule)
-    self.assertEquals(result, 444)
-    self.mox.VerifyAll()
-
+    self.ReturnValue('diff', gclient.DoDiff, 42)
   def testBadClient(self):
-    client = {}
-    options = self.Options()
-    args = Args()
-    self.gclient_class.GetClient(options).AndReturn(client)
-
-    self.mox.ReplayAll()
-    self.assertRaisesError(
-        "client not configured; see 'gclient config'",
-        gclient.DoRevert, options, args, self.gclient_class.GetClient)
-    self.mox.VerifyAll()
+    self.BadClient(gclient.DoDiff)
+  def testVerbose(self):
+    self.Verbose('diff', gclient.DoDiff)
 
 
-class TestDispatchCommand(GclientTestCase):
-  class Options(GclientTestCase.Options):
-    def __init__(self):
-      GclientTestCase.Options.__init__(self, force=random.choice((True, False)),
-                                       revision=random.randint(0, 10000000))
-
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.options = self.Options()
-    self.args = Args()
-
+class TestDoRevert(GenericCommandTestCase):
   def testBasic(self):
-    self.gclient.DoDiff(self.options, self.args).AndReturn(0)
-    self.gclient.DoConfig(self.options, self.args).AndReturn(0)
-
-    self.mox.ReplayAll()
-    # Declare after ReplayAll so mox doesn't think these are expectations.
-    command_map = {
-        'config': self.gclient.DoConfig,
-        'diff': self.gclient.DoDiff,
-        }
-    result = gclient.DispatchCommand('diff', self.options, self.args,
-                                     command_map)
-    self.assertEquals(result, 0)
-    result = gclient.DispatchCommand('config', self.options, self.args,
-                                     command_map)
-    self.assertEquals(result, 0)
-    self.mox.VerifyAll()
-
+    self.ReturnValue('revert', gclient.DoRevert, 0)
   def testError(self):
-    self.gclient.DoDiff(self.options, self.args).AndReturn(777)
-    self.gclient.DoConfig(self.options, self.args).AndReturn(888)
+    self.ReturnValue('revert', gclient.DoRevert, 42)
+  def testBadClient(self):
+    self.BadClient(gclient.DoRevert)
 
+
+
+
+class GClientClassTestCase(GclientTestCase):
+  def testDir(self):
+    members = ['ConfigContent', 'FromImpl', '_GetAllDeps',
+      '_GetDefaultSolutionDeps', 'GetVar', '_LoadConfig', 'LoadCurrentConfig',
+      '_ReadEntries', 'RunOnDeps', 'SaveConfig', '_SaveEntries', 'SetConfig',
+      'SetDefaultConfig', '__class__', '__delattr__', '__dict__', '__doc__',
+      '__getattribute__', '__hash__', '__init__', '__module__', '__new__',
+      '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__str__',
+      '__weakref__', 'supported_commands']
+
+    # If you add a member, be sure to add the relevant test!
+    self.assertEqual(sorted(dir(gclient.GClient)), sorted(members))
     self.mox.ReplayAll()
-    # Declare after ReplayAll so mox doesn't think these are expectations.
-    command_map = {
-        'config': self.gclient.DoConfig,
-        'diff': self.gclient.DoDiff,
-        }
-    result = gclient.DispatchCommand('diff', self.options, self.args,
-                                     command_map)
-    self.assertEquals(result, 777)
-    result = gclient.DispatchCommand('config', self.options, self.args,
-                                     command_map)
-    self.assertEquals(result, 888)
     self.mox.VerifyAll()
 
-  def testUnknownCommand(self):
+  def testSetConfig_ConfigContent_GetVar_SaveConfig_SetDefaultConfig(self):
+    options = self.Options()
+    text = "# Dummy content\nclient = 'my client'"
+    gclient.FileWrite(os.path.join(self.root_dir, options.config_filename),
+                      text)
+
     self.mox.ReplayAll()
-    self.assertRaisesError(
-        "unknown subcommand; see 'gclient help'",
-        gclient.DispatchCommand, 'speak', self.options, self.args,
-        {})
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(text)
+    self.assertEqual(client.ConfigContent(), text)
+    self.assertEqual(client.GetVar('client'), 'my client')
+    self.assertEqual(client.GetVar('foo'), None)
+    client.SaveConfig()
+
+    solution_name = 'solution name'
+    solution_url = 'solution url'
+    default_text = gclient.DEFAULT_CLIENT_FILE_TEXT % (solution_name,
+                                                       solution_url)
+    client.SetDefaultConfig(solution_name, solution_url)
+    self.assertEqual(client.ConfigContent(), default_text)
+    solutions = [{'name':solution_name, 'url':solution_url, 'custom_deps':{}}]
+    self.assertEqual(client.GetVar('solutions'), solutions)
+    self.assertEqual(client.GetVar('foo'), None)
     self.mox.VerifyAll()
 
+  def testLoadCurrentConfig(self):
+    # pymox has trouble to mock the class object and not a class instance.
+    self.gclient = self.mox.CreateMockAnything()
+    options = self.Options()
+    path = os.path.realpath(self.root_dir)
+    options.path_exists(os.path.join(path, options.config_filename)
+        ).AndReturn(True)
+    options.gclient(path, options).AndReturn(options.gclient)
+    options.gclient._LoadConfig()
 
-class TestGetDefaultSolutionDeps(GclientTestCase):
+    self.mox.ReplayAll()
+    client = gclient.GClient.LoadCurrentConfig(options, self.root_dir)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsSuccess(self):
+    # Fake .gclient file.
+    name = 'testRunOnDepsSuccess_solution_name'
+    gclient_config = """solutions = [ {
+  'name': '%s',
+  'url': '%s',
+  'custom_deps': {},
+}, ]""" % (name, self.url)
+
+    # pymox has trouble to mock the class object and not a class instance.
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    options = self.Options()
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+    options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
+        options.scm_wrapper)
+    options.scm_wrapper.RunCommand('update', options, self.args)
+    gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
+        ).AndReturn("Boo = 'a'")
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+                      'entries = [\n  "%s",\n]\n' % name)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsRevisions(self):
+    def OptIsRev(options, rev):
+      if not options.revision == str(rev):
+        print "options.revision = %s" % options.revision
+      return options.revision == str(rev)
+    def OptIsRevNone(options):
+      if options.revision:
+        print "options.revision = %s" % options.revision
+      return options.revision == None
+    def OptIsRev42(options):
+      return OptIsRev(options, 42)
+    def OptIsRev123(options):
+      return OptIsRev(options, 123)
+    def OptIsRev333(options):
+      return OptIsRev(options, 333)
+
+    # Fake .gclient file.
+    gclient_config = """solutions = [ {
+  'name': 'src',
+  'url': '%s',
+  'custom_deps': {},
+}, ]""" % self.url
+    # Fake DEPS file.
+    deps_content = """deps = {
+  'src/breakpad/bar': 'http://google-breakpad.googlecode.com/svn/trunk/src@285',
+  'foo/third_party/WebKit': '/trunk/deps/third_party/WebKit',
+  'src/third_party/cygwin': '/trunk/deps/third_party/cygwin@3248',
+}
+deps_os = {
+  'win': {
+    'src/foosad/asdf': 'svn://random_server:123/asd/python_24@5580',
+  },
+  'mac': {
+    'src/third_party/python_24': 'svn://random_server:123/trunk/python_24@5580',
+  },
+}"""
+    entries_content = (
+      'entries = [\n  "src",\n'
+      '  "foo/third_party/WebKit",\n'
+      '  "src/third_party/cygwin",\n'
+      '  "src/third_party/python_24",\n'
+      '  "src/breakpad/bar",\n'
+      ']\n')
+    cygwin_path = 'dummy path cygwin'
+    webkit_path = 'dummy path webkit'
+
+    # pymox has trouble to mock the class object and not a class instance.
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_bleh = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_src2 = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_webkit = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_breakpad = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_cygwin = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_python = self.mox.CreateMock(gclient.SCMWrapper)
+    options = self.Options()
+    options.revisions = [ 'src@123', 'foo/third_party/WebKit@42',
+                          'src/third_party/cygwin@333' ]
+
+    # Also, pymox doesn't verify the order of function calling w.r.t. different
+    # mock objects. Pretty lame. So reorder as we wish to make it clearer.
+    gclient.FileRead(os.path.join(self.root_dir, 'src', options.deps_file)
+        ).AndReturn(deps_content)
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+                      entries_content)
+
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+    
+    options.scm_wrapper(self.url, self.root_dir, 'src').AndReturn(
+        scm_wrapper_src)
+    scm_wrapper_src.RunCommand('update', mox.Func(OptIsRev123), self.args)
+
+    options.scm_wrapper(self.url, self.root_dir,
+                        None).AndReturn(scm_wrapper_src2)
+    scm_wrapper_src2.FullUrlForRelativeUrl('/trunk/deps/third_party/cygwin@3248'
+        ).AndReturn(cygwin_path)
+
+    options.scm_wrapper(self.url, self.root_dir,
+                        None).AndReturn(scm_wrapper_src2)
+    scm_wrapper_src2.FullUrlForRelativeUrl('/trunk/deps/third_party/WebKit'
+        ).AndReturn(webkit_path)
+
+    options.scm_wrapper(webkit_path, self.root_dir,
+                        'foo/third_party/WebKit').AndReturn(scm_wrapper_webkit)
+    scm_wrapper_webkit.RunCommand('update', mox.Func(OptIsRev42), self.args)
+
+    options.scm_wrapper(
+        'http://google-breakpad.googlecode.com/svn/trunk/src@285',
+        self.root_dir, 'src/breakpad/bar').AndReturn(scm_wrapper_breakpad)
+    scm_wrapper_breakpad.RunCommand('update', mox.Func(OptIsRevNone), self.args)
+
+    options.scm_wrapper(cygwin_path, self.root_dir,
+                        'src/third_party/cygwin').AndReturn(scm_wrapper_cygwin)
+    scm_wrapper_cygwin.RunCommand('update', mox.Func(OptIsRev333), self.args)
+
+    options.scm_wrapper('svn://random_server:123/trunk/python_24@5580',
+                        self.root_dir,
+                        'src/third_party/python_24').AndReturn(
+                            scm_wrapper_python)
+    scm_wrapper_python.RunCommand('update', mox.Func(OptIsRevNone), self.args)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsFailureInvalidCommand(self):
+    options = self.Options()
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    exception = "'foo' is an unsupported command"
+    self.assertRaisesError(exception, gclient.GClient.RunOnDeps, client, 'foo',
+                           self.args)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsFailureEmpty(self):
+    options = self.Options()
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    exception = "No solution specified"
+    self.assertRaisesError(exception, gclient.GClient.RunOnDeps, client,
+                           'update', self.args)
+    self.mox.VerifyAll()
+
+  def testFromImpl(self):
+    # TODO(maruel):  Test me!
+    pass
+
+  # No test for internal functions.
+  def test_GetAllDeps(self):
+    pass
+  def test_GetDefaultSolutionDeps(self):
+    pass
+  def test_LoadConfig(self):
+    pass
+  def test_ReadEntries(self):
+    pass
+  def test_SaveEntries(self):
+    pass
+
+
+class SCMWrapperTestCase(BaseTestCase):
+  class OptionsObject(object):
+     def __init__(self, test_case, verbose=False, revision=None):
+      self.verbose = verbose
+      self.revision = revision
+
+      # Mox
+      self.stdout = test_case.stdout
+      self.path_exists = test_case.path_exists
+
   def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
+    BaseTestCase.setUp(self)
+    self.root_dir = Dir()
+    self.args = Args()
+    self.url = Url()
+    self.relpath = 'asf'
     self.stdout = self.mox.CreateMock(sys.stdout)
+    # Stub os.path.exists.
+    self.path_exists = self.mox.CreateMockAnything()
 
-    # Have to monkey-patch execfile since it's a built-in
-    # and pymox can't handle that.
-    self.save_execfile = __builtin__.execfile
+  def testDir(self):
+    members = ['FullUrlForRelativeUrl', 'RunCommand', '__class__',
+      '__delattr__', '__dict__', '__doc__', '__getattribute__',
+      '__hash__', '__init__', '__module__', '__new__', '__reduce__',
+      '__reduce_ex__', '__repr__', '__setattr__', '__str__', '__weakref__',
+      'diff', 'revert', 'status', 'update']
 
-    self.get_default_solution_deps = (
-        lambda client, solution_name, platform=None,
-        execf=self.save_execfile:
-        gclient.GClient.GetDefaultSolutionDeps(client, solution_name, platform,
-                                       execf=execf,
-                                       logger=self.stdout))
-
-  def tearDown(self):
-    __builtin__.execfile = self.save_execfile
-
-  def testNoDepsFile(self):
-    client = gclient.GClient('/my/dir', self.Options())
-
-    def MockExecFile(fname, scope):
-      raise IOError('No such file or directory: %s' % repr(fname))
-
-    print >>self.stdout, (
-        '\nWARNING: DEPS file not found for solution: my_solution\n')
+    # If you add a member, be sure to add the relevant test!
+    self.assertEqual(sorted(dir(gclient.SCMWrapper)), sorted(members))
     self.mox.ReplayAll()
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            execf=MockExecFile)
-    self.mox.VerifyAll()
-    self.assertEqual(result, {})
-
-  def testNoDepsDictionary(self):
-    client = gclient.GClient('/my/dir', self.Options())
-
-    def MockExecFile(fname, scope):
-      self.my_execfile_fname = fname
-      scope.update({})
-
-    self.mox.ReplayAll()
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            execf=MockExecFile)
-    self.mox.VerifyAll()
-    self.assertEqual(result, {})
-
-  def testSimpleDepsFile(self):
-    client = gclient.GClient('/my/dir', self.Options())
-
-    deps = {'component1': 'http:/url1',
-            'component2': 'http:/url2'}
-
-    def MockExecFile(fname, scope):
-      self.my_execfile_fname = fname
-      scope.update({'deps': deps})
-
-    self.mox.ReplayAll()
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            execf=MockExecFile)
-    self.mox.VerifyAll()
-    self.assertEqual(result, deps)
-
-  def testDepsOs(self):
-    client = gclient.GClient('/my/dir', self.Options())
-
-    deps = {'component1': 'http:/url1'}
-    deps_os = {'win': {'component2': 'http:/url2'},
-               'mac': {'component3': 'http:/url3'},
-               'unix': {'component4': 'http:/url4'},
-              }
-
-    def MockExecFile(fname, scope):
-      self.my_execfile_fname = fname
-      scope.update({'deps': deps.copy(), 'deps_os': deps_os.copy()})
-
-    self.mox.ReplayAll()
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='win',
-                                            execf=MockExecFile)
-    self.mox.VerifyAll()
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component2': 'http:/url2',
-                             })
-
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='win32',
-                                            execf=MockExecFile)
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component2': 'http:/url2',
-                             })
-
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='mac',
-                                            execf=MockExecFile)
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component3': 'http:/url3',
-                             })
-
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='darwin',
-                                            execf=MockExecFile)
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component3': 'http:/url3',
-                             })
-
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='unix',
-                                            execf=MockExecFile)
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component4': 'http:/url4',
-                             })
-
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='linux2',
-                                            execf=MockExecFile)
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component4': 'http:/url4',
-                             })
-
-    result = self.get_default_solution_deps(client, 'my_solution',
-                                            platform='unrecognized',
-                                            execf=MockExecFile)
-    self.assertEqual(result, {'component1': 'http:/url1',
-                              'component4': 'http:/url4',
-                             })
-
-
-class TestGetAllDeps(GclientTestCase):
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.gclient_class = self.mox.CreateMock(gclient.GClient)
-    self.get_all_deps = (
-        lambda client, solution_urls:
-        gclient.GClient.GetAllDeps(
-            client, solution_urls,
-            get_default_solution_deps=self.gclient_class.GetDefaultSolutionDeps,
-            capture_svn_info=self.gclient.CaptureSVNInfo))
-
-  def testEmptyDeps(self):
-    solutions = [{'name': 'solution1',
-                  'url': 'http://solution1'},
-                 {'name': 'solution2',
-                  'url': 'http://solution2'},
-                ]
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn({})
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution2').AndReturn({})
-    self.mox.ReplayAll()
-    result = self.get_all_deps(client, {})
-    self.mox.VerifyAll()
-    self.assertEqual(result, {})
-
-  def testActualDeps(self):
-    solutions = [{'name': 'solution1',
-                  'url': 'http://solution1'},
-                 {'name': 'solution2',
-                  'url': 'http://solution2'},
-                ]
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
-
-    deps1 = {'dep1a': 'http://url1a', 'dep1b': 'http://url1b'}
-    deps2 = {'dep2a': 'http://url2a', 'dep2b': 'http://url2b'}
-
-    expected_result = {}
-    expected_result.update(deps1)
-    expected_result.update(deps2)
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution2').AndReturn(deps2)
-    self.mox.ReplayAll()
-    result = self.get_all_deps(client, {})
-    self.mox.VerifyAll()
-    self.assertEqual(result, expected_result)
-
-  def testCustomDeps(self):
-    solutions = [{'name': 'solution1',
-                  'url': 'http://solution1',
-                  'custom_deps': {'dep1a': 'http://custom_dep_1a'},
-                 },
-                 {'name': 'solution2',
-                  'url': 'http://solution2',
-                  'custom_deps': {'dep2a': None,
-                                  'dep2b': 'http://custom_dep_2b'},
-                 },
-                ]
-    client = {'solutions': solutions}
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
-
-    deps1 = {'dep1a': 'http://url1a', 'dep1b': 'http://url1b'}
-    deps2 = {'dep2a': 'http://url2a', 'dep2b': 'http://url2b'}
-
-    expected_result = {
-        'dep1a': 'http://custom_dep_1a',
-        'dep1b': 'http://url1b',
-        'dep2b': 'http://custom_dep_2b',
-    }
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution2').AndReturn(deps2)
-    self.mox.ReplayAll()
-    result = self.get_all_deps(client, {})
-    self.mox.VerifyAll()
-    self.assertEqual(result, expected_result)
-
-  def testRelativeDeps(self):
-    root_url = 'http://url1'
-    solutions = [{'name': 'solution1',
-                  'url': root_url + '/solution1'}]
-    client = gclient.GClient(RootDir(), self.Options())
-    client.config_dict_['solutions'] = solutions
-    deps = {'component1': 'http://an/absolute/url/path',
-            'component2': '/a/relative/path'}
-    svn_info = {'root': root_url}
-
-    expected_result = deps.copy()
-    expected_result['component2'] = root_url + deps['component2']
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps)
-    self.gclient.CaptureSVNInfo('http://url1/solution1', client.root_dir,
-                                False).AndReturn(svn_info)
-    self.mox.ReplayAll()
-    result = self.get_all_deps(client, {})
-    self.mox.VerifyAll()
-    self.assertEqual(result, expected_result)
-
-  def testRelativeDepsError(self):
-    solutions = [{'name': 'solution1',
-                  'url': '/http://url1/solution1'}]
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
-    deps = {'component1': 'a/bad/relative/path'}
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps)
-    self.mox.ReplayAll()
-    self.assertRaisesError(
-        'relative DEPS entry \"component1\" must begin with a slash',
-        self.get_all_deps, client, {})
     self.mox.VerifyAll()
 
-  def testConflictingSolutions(self):
-    solutions = [{'name': 'solution1',
-                  'url': 'http://solution1',
-                 },
-                 {'name': 'solution2',
-                  'url': 'http://solution2',
-                 },
-                ]
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
+  def testFullUrlForRelativeUrl(self):
+    self.url = 'svn://a/b/c/d'
 
-    deps1 = {'conflict': 'http://url1'}
-    deps2 = {'conflict': 'http://url2'}
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution2').AndReturn(deps2)
     self.mox.ReplayAll()
-    self.assertRaisesError(
-        'solutions have conflicting versions of dependency "conflict"',
-        self.get_all_deps, client, {})
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    self.assertEqual(scm.FullUrlForRelativeUrl('/crap'), 'svn://a/b/crap')
     self.mox.VerifyAll()
 
-  def testConflictingSpecified(self):
-    solutions = [{'name': 'solution1',
-                  'url': 'http://solution1',
-                 },
-                ]
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
+  def testRunCommandException(self):
+    options = self.Options(verbose=False)
+    options.path_exists(os.path.join(self.root_dir, self.relpath, '.git')
+        ).AndReturn(False)
 
-    deps1 = {'conflict': 'http://url1'}
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution1').AndReturn(deps1)
     self.mox.ReplayAll()
-    self.assertRaisesError(
-        'dependency "conflict" conflicts with specified solution',
-        self.get_all_deps, client, {'conflict': 'http://url2'})
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    exception = "Unsupported argument(s): %s" % ','.join(self.args)
+    self.assertRaisesError(exception, gclient.SCMWrapper.RunCommand,
+                           scm, 'update', options, self.args)
     self.mox.VerifyAll()
 
-  def testFrom(self):
-    solutions = [{'name': 'solution',
-                  'url': 'http://solution',
-                 },
-                ]
-    client = gclient.GClient('.', self.Options())
-    client.config_dict_['solutions'] = solutions
+  def testRunCommandUnknown(self):
+    # TODO(maruel): if ever used.
+    pass
 
-    class From:
-      def __init__(self, module_name):
-        self.module_name = module_name
+  def testRevertMissing(self):
+    options = self.Options(verbose=True)
+    gclient.os.path.isdir = self.mox.CreateMockAnything()
+    gclient.os.path.isdir(os.path.join(self.root_dir, self.relpath)
+        ).AndReturn(False)
+    print >>options.stdout, ("\n_____ %s is missing, can't revert" %
+                             self.relpath)
 
-    deps = {'xyz': From('other_module')}
-
-    self.gclient_class.GetDefaultSolutionDeps(client, 'solution').AndReturn(deps)
     self.mox.ReplayAll()
-    result = self.get_all_deps(client, {})
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    scm.revert(options, self.args)
     self.mox.VerifyAll()
-    self.assertEqual(result, deps)
+    gclient.os.path.isdir = os.path.isdir
 
+  def testRevertNone(self):
+    options = self.Options(verbose=True)
+    base_path = os.path.join(self.root_dir, self.relpath)
+    gclient.os.path.isdir = self.mox.CreateMockAnything()
+    gclient.os.path.isdir(base_path).AndReturn(True)
+    text = "\n"
+    gclient.CaptureSVN(options, ['status'], base_path).AndReturn(text)
 
-class TestCaptureSVNInfo(GclientTestCase):
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.CaptureSVNInfo = (
-        lambda relpath, in_directory, verbose:
-        gclient.CaptureSVNInfo(relpath, in_directory, verbose,
-            capture_svn=self.gclient.CaptureSVN))
-
-  def testBasic(self):
-    xml = """<?xml version="1.0"?>
-    <info>
-    <entry
-       kind="dir"
-       path="."
-       revision="12345">
-    <url>http://test.url/root/url</url>
-    <repository>
-    <root>http://test.url/root</root>
-    <uuid>a-fake-uuid-value</uuid>
-    </repository>
-    <wc-info>
-    <schedule>normal</schedule>
-    </wc-info>
-    <commit
-       revision="12345">
-    <author>sguireknight</author>
-    <date>2008-09-04T18:14:15.308404Z</date>
-    </commit>
-    </entry>
-    </info>
-    """
-
-    expect = {
-        'url': 'http://test.url/root/url',
-        'root': 'http://test.url/root',
-        'uuid': 'a-fake-uuid-value',
-        'revision': '12345',
-    }
-
-    self.gclient.CaptureSVN(['info', '--xml', 'rel_path'],
-                            'in_dir', False).AndReturn(xml)
     self.mox.ReplayAll()
-    result = self.CaptureSVNInfo('rel_path', 'in_dir', False)
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    scm.revert(options, self.args)
     self.mox.VerifyAll()
-    self.assertEqual(result, expect)
+    gclient.os.path.isdir = os.path.isdir
 
+  def testRevert2Files(self):
+    options = self.Options(verbose=True)
+    base_path = os.path.join(self.root_dir, self.relpath)
+    gclient.os.path.isdir = self.mox.CreateMockAnything()
+    gclient.os.path.isdir(base_path).AndReturn(True)
+    text = "M      a\nA      b\n"
+    gclient.CaptureSVN(options, ['status'], base_path).AndReturn(text)
 
-class TestCaptureSVNStatus(GclientTestCase):
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.gclient = self.mox.CreateMock(gclient)
-    self.CaptureSVNStatus = (
-        lambda path, verbose:
-        gclient.CaptureSVNStatus(path, verbose,
-            capture_svn=self.gclient.CaptureSVN))
+    print >>options.stdout, os.path.join(base_path, 'a')
+    print >>options.stdout, os.path.join(base_path, 'b')
+    gclient.RunSVN(options, ['revert', 'a', 'b'], base_path)
 
-  def testBasic(self):
-    output = """ABCDEFGbleh.cc
-!      very long file name
-~CL+SK*foo.bar
-"""
-
-    expect = [
-#        gclient.FileStatus('bleh.cc', 'A', 'B', 'C', 'D', 'E', 'F', 'G'),
-#        gclient.FileStatus('very long file name', '!', ' ', ' ', ' ', ' ', ' ', ' '),
-#        gclient.FileStatus('foo.bar', '~', 'C', 'L', '+', 'S', 'K', '*'),
-    ]
-
-    self.gclient.CaptureSVN(['status'], 'path', False)
-    #.AndReturn(output)
     self.mox.ReplayAll()
-    result = self.CaptureSVNStatus('path', False)
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    scm.revert(options, self.args)
     self.mox.VerifyAll()
-    self.assertEqual(result, expect)
+    gclient.os.path.isdir = os.path.isdir
+
+  def testStatus(self):
+    options = self.Options(verbose=True)
+    base_path = os.path.join(self.root_dir, self.relpath)
+    gclient.RunSVN(options, ['status'] + self.args, base_path).AndReturn(None)
+
+    self.mox.ReplayAll()
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    self.assertEqual(scm.status(options, self.args), None)
+    self.mox.VerifyAll()
+
+  # TODO(maruel):  TEST REVISIONS!!!
+  # TODO(maruel):  TEST RELOCATE!!!
+  def testUpdateCheckout(self):
+    options = self.Options(verbose=True)
+    base_path = os.path.join(self.root_dir, self.relpath)
+    options.path_exists(os.path.join(base_path, '.git')).AndReturn(False)
+    # Checkout or update.
+    options.path_exists(base_path).AndReturn(False)
+    print >>options.stdout, ("\n_____ checkout %s%s" % (self.relpath, ''))
+    gclient.RunSVN(options, ['checkout', self.url, base_path], self.root_dir)
+
+    self.mox.ReplayAll()
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    scm.update(options, ())
+    self.mox.VerifyAll()
+
+  def testUpdateUpdate(self):
+    xml_text = """<?xml version="1.0"?>
+<info>
+<entry
+   kind="dir"
+   path="."
+   revision="35">
+<url>%s</url>
+<repository>
+<root>%s</root>
+<uuid>7b9385f5-0452-0410-af26-ad4892b7a1fb</uuid>
+</repository>
+<wc-info>
+<schedule>normal</schedule>
+<depth>infinity</depth>
+</wc-info>
+<commit
+   revision="35">
+<author>maruel</author>
+<date>2008-12-04T20:12:19.685120Z</date>
+</commit>
+</entry>
+</info>
+""" % (self.url, self.url)
+    options = self.Options(verbose=True)
+    base_path = os.path.join(self.root_dir, self.relpath)
+    options.force = True
+    options.path_exists(os.path.join(base_path, '.git')).AndReturn(False)
+    # Checkout or update.
+    options.path_exists(base_path).AndReturn(True)
+    gclient.CaptureSVN(options, ['info', '--xml', os.path.join(base_path, '.')],
+                       '.').AndReturn(xml_text)
+    gclient.CaptureSVN(options, ['info', '--xml', self.url],
+                       '.').AndReturn(xml_text)
+    gclient.RunSVN(options, ['update', base_path, '--revision', '35'],
+                   self.root_dir).AndReturn(xml_text)
+    print >>options.stdout, ("\n_____ updating %s%s" % (self.relpath, ' at 35'))
+
+    self.mox.ReplayAll()
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    scm.update(options, ())
+    self.mox.VerifyAll()
+
+  def testUpdateGit(self):
+    options = self.Options(verbose=True)
+    options.path_exists(os.path.join(self.root_dir, self.relpath, '.git')
+        ).AndReturn(True)
+    print >> options.stdout, (
+        "________ found .git directory; skipping %s" % self.relpath)
+
+    self.mox.ReplayAll()
+    scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
+                             relpath=self.relpath)
+    scm.update(options, self.args)
+    self.mox.VerifyAll()
 
 
 if __name__ == '__main__':
