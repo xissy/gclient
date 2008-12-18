@@ -437,9 +437,8 @@ class SCMWrapper(object):
     return '/'.join(self.url.split('/')[:4]) + url
 
   def RunCommand(self, command, options, args):
-    if options.verbose:
-      print >> options.stdout, ("\n________ running \'%s\' in \'%s\'"
-             % (command, os.path.realpath(self.relpath)))
+    print >> options.stdout, ("\n________ running \'%s\' in \'%s\'"
+           % (command, os.path.realpath(self.relpath)))
     if command == 'update':
       self.update(options, args)
     elif command == 'revert':
@@ -491,8 +490,6 @@ class SCMWrapper(object):
 
     if not options.path_exists(os.path.join(self._root_dir, self.relpath)):
       # We need to checkout.
-      print >>options.stdout, ("\n_____ checkout %s%s" % (self.relpath,
-                                                          rev_str))
       command = ['checkout', url, os.path.join(self._root_dir, self.relpath)]
       RunSVN(options, command, self._root_dir)
       return
@@ -538,7 +535,6 @@ class SCMWrapper(object):
             self.relpath, rev_str))
       return
 
-    print >>options.stdout, ("\n_____ updating %s%s" % (self.relpath, rev_str))
     command = ["update", os.path.join(self._root_dir, self.relpath)]
     if revision:
       command.extend(['--revision', str(revision)])
