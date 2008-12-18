@@ -105,6 +105,7 @@ class GclientTestCase(BaseTestCase):
       self.entries_filename = entries_filename
       self.deps_file = deps_file
       self.revisions = []
+      self.manually_grab_svn_rev = True
 
       # Mox
       self.stdout = test_case.stdout
@@ -531,6 +532,7 @@ class SCMWrapperTestCase(BaseTestCase):
      def __init__(self, test_case, verbose=False, revision=None):
       self.verbose = verbose
       self.revision = revision
+      self.manually_grab_svn_rev = True
 
       # Mox
       self.stdout = test_case.stdout
@@ -652,7 +654,6 @@ class SCMWrapperTestCase(BaseTestCase):
     options.path_exists(os.path.join(base_path, '.git')).AndReturn(False)
     # Checkout or update.
     options.path_exists(base_path).AndReturn(False)
-    print >>options.stdout, ("\n_____ checkout %s%s" % (self.relpath, ''))
     gclient.RunSVN(options, ['checkout', self.url, base_path], self.root_dir)
 
     self.mox.ReplayAll()
@@ -693,11 +694,14 @@ class SCMWrapperTestCase(BaseTestCase):
     options.path_exists(base_path).AndReturn(True)
     gclient.CaptureSVN(options, ['info', '--xml', os.path.join(base_path, '.')],
                        '.').AndReturn(xml_text)
-    gclient.CaptureSVN(options, ['info', '--xml', self.url],
-                       '.').AndReturn(xml_text)
-    gclient.RunSVN(options, ['update', base_path, '--revision', '35'],
+    additional_args = []
+    if options.manually_grab_svn_rev:
+      gclient.CaptureSVN(options, ['info', '--xml', self.url],
+                         '.').AndReturn(xml_text)
+      additional_args = ['--revision', '35']
+    gclient.RunSVN(options, ['update', base_path] + additional_args,
                    self.root_dir).AndReturn(xml_text)
-    print >>options.stdout, ("\n_____ updating %s%s" % (self.relpath, ' at 35'))
+    # print >>options.stdout, ("\n_____ updating %s%s" % (self.relpath, ' at 35'))
 
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
