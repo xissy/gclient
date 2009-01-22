@@ -697,11 +697,25 @@ class GClient(object):
     def __str__(self):
       return 'From("%s")' % self.module_name
 
-  def _GetDefaultSolutionDeps(self, solution_name):
+  class _VarImpl:
+    def __init__(self, custom_vars, local_scope):
+      self._custom_vars = custom_vars
+      self._local_scope = local_scope
+
+    def Lookup(self, var_name):
+      """Implements the Var syntax."""
+      if var_name in self._custom_vars:
+        return self._custom_vars[var_name]
+      elif var_name in self._local_scope.get("vars", {}):
+        return self._local_scope["vars"][var_name]
+      raise Error("Var is not defined: %s" % var_name)
+
+  def _GetDefaultSolutionDeps(self, solution_name, custom_vars):
     """Fetches the DEPS file for the specified solution.
 
     Args:
       solution_name: The name of the solution to query.
+      vars: A dict of vars to override any vars defined in the DEPS file.
 
     Returns:
       A dict mapping module names (as relative paths) to URLs or an empty
@@ -709,25 +723,31 @@ class GClient(object):
     """
     deps_file = os.path.join(self._root_dir, solution_name,
                              self._options.deps_file)
-    scope = {"From": self.FromImpl, "deps_os": {}}
+
+    local_scope = {}
+    var = self._VarImpl(custom_vars, local_scope)
+    global_scope = {"From": self.FromImpl, "Var": var.Lookup, "deps_os": {}}
     try:
-      exec(FileRead(deps_file), scope)
+      exec(FileRead(deps_file), global_scope, local_scope)
     except EnvironmentError:
       print >> self._options.stdout, (
           "\nWARNING: DEPS file not found for solution: %s\n" % solution_name)
       return {}
-    deps = scope.get("deps", {})
+    deps = local_scope.get("deps", {})
+
     # load os specific dependencies if defined.  these dependencies may override
     # or extend the values defined by the 'deps' member.
-    deps_os_key = {
-        "win32": "win",
-        "win": "win",
-        "cygwin": "win",
-        "darwin": "mac",
-        "mac": "mac",
-        "unix": "unix",
-    }.get(self._options.platform, "unix")
-    deps.update(scope["deps_os"].get(deps_os_key, {}))
+    if "deps_os" in local_scope:
+      deps_os_key = {
+          "win32": "win",
+          "win": "win",
+          "cygwin": "win",
+          "darwin": "mac",
+          "mac": "mac",
+          "unix": "unix",
+      }.get(self._options.platform, "unix")
+      deps.update(local_scope["deps_os"].get(deps_os_key, {}))
+
     return deps
 
   def _GetAllDeps(self, solution_urls):
@@ -747,7 +767,10 @@ class GClient(object):
     """
     deps = {}
     for solution in self.GetVar("solutions"):
-      solution_deps = self._GetDefaultSolutionDeps(solution["name"])
+      custom_vars = solution.get("custom_vars", {})
+      solution_deps = self._GetDefaultSolutionDeps(solution["name"],
+                                                   custom_vars)
+
       for d in solution_deps:
         if "custom_deps" in solution and d in solution["custom_deps"]:
           # Dependency is overriden.
