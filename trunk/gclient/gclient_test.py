@@ -302,7 +302,7 @@ class TestDoRevert(GenericCommandTestCase):
 
 class GClientClassTestCase(GclientTestCase):
   def testDir(self):
-    members = ['ConfigContent', 'FromImpl', '_GetAllDeps',
+    members = ['ConfigContent', 'FromImpl', '_VarImpl', '_GetAllDeps',
       '_GetDefaultSolutionDeps', 'GetVar', '_LoadConfig', 'LoadCurrentConfig',
       '_ReadEntries', 'RunOnDeps', 'SaveConfig', '_SaveEntries', 'SetConfig',
       'SetDefaultConfig', '__class__', '__delattr__', '__dict__', '__doc__',
@@ -489,6 +489,154 @@ deps_os = {
     client.SetConfig(gclient_config)
     client.RunOnDeps('update', self.args)
     self.mox.VerifyAll()
+    
+  def testRunOnDepsSuccessVars(self):
+    # Fake .gclient file.
+    name = 'testRunOnDepsSuccessVars_solution_name'
+    gclient_config = """solutions = [ {
+  'name': '%s',
+  'url': '%s',
+  'custom_deps': {},
+  'custom_vars': {},
+}, ]""" % (name, self.url)
+    # Fake DEPS file.
+    deps_content = """vars = {
+  'webkit': '/trunk/bar/',
+}
+deps = {
+  'foo/third_party/WebKit': Var('webkit') + 'WebKit',
+}"""
+    entries_content = (
+      'entries = [\n  "foo/third_party/WebKit",\n'
+      '  "%s",\n'
+      ']\n') % name
+    webkit_path = 'dummy path webkit'
+
+    # pymox has trouble to mock the class object and not a class instance.
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_webkit = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
+ 
+    options = self.Options()
+    gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
+        ).AndReturn(deps_content)
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+                      entries_content)
+
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+    options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
+        options.scm_wrapper)
+    options.scm_wrapper.RunCommand('update', options, self.args)
+
+    options.scm_wrapper(self.url, self.root_dir,
+                        None).AndReturn(scm_wrapper_src)
+    scm_wrapper_src.FullUrlForRelativeUrl('/trunk/bar/WebKit'
+        ).AndReturn(webkit_path)
+
+    options.scm_wrapper(webkit_path, self.root_dir,
+                        'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
+    options.scm_wrapper.RunCommand('update', options, self.args)
+    
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsSuccessCustomVars(self):
+    # Fake .gclient file.
+    name = 'testRunOnDepsSuccessCustomVars_solution_name'
+    gclient_config = """solutions = [ {
+  'name': '%s',
+  'url': '%s',
+  'custom_deps': {},
+  'custom_vars': {'webkit': '/trunk/bar_custom/'},
+}, ]""" % (name, self.url)
+    # Fake DEPS file.
+    deps_content = """vars = {
+  'webkit': '/trunk/bar/',
+}
+deps = {
+  'foo/third_party/WebKit': Var('webkit') + 'WebKit',
+}"""
+    entries_content = (
+      'entries = [\n  "foo/third_party/WebKit",\n'
+      '  "%s",\n'
+      ']\n') % name
+    webkit_path = 'dummy path webkit'
+
+    # pymox has trouble to mock the class object and not a class instance.
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_webkit = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
+ 
+    options = self.Options()
+    gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
+        ).AndReturn(deps_content)
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+                      entries_content)
+
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+    options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
+        options.scm_wrapper)
+    options.scm_wrapper.RunCommand('update', options, self.args)
+
+    options.scm_wrapper(self.url, self.root_dir,
+                        None).AndReturn(scm_wrapper_src)
+    scm_wrapper_src.FullUrlForRelativeUrl('/trunk/bar_custom/WebKit'
+        ).AndReturn(webkit_path)
+
+    options.scm_wrapper(webkit_path, self.root_dir,
+                        'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
+    options.scm_wrapper.RunCommand('update', options, self.args)
+    
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsFailueVars(self):
+    # Fake .gclient file.
+    name = 'testRunOnDepsFailureVars_solution_name'
+    gclient_config = """solutions = [ {
+  'name': '%s',
+  'url': '%s',
+  'custom_deps': {},
+  'custom_vars': {},
+}, ]""" % (name, self.url)
+    # Fake DEPS file.
+    deps_content = """deps = {
+  'foo/third_party/WebKit': Var('webkit') + 'WebKit',
+}"""
+
+    # pymox has trouble to mock the class object and not a class instance.
+    self.scm_wrapper = self.mox.CreateMockAnything()
+
+    options = self.Options()
+    gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
+        ).AndReturn(deps_content)
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+                      'dummy entries content')
+
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+    options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
+        options.scm_wrapper)
+    options.scm_wrapper.RunCommand('update', options, self.args)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    exception = "Var is not defined: webkit"
+    try:
+      client.RunOnDeps('update', self.args)
+    except gclient.Error, e:
+      self.assertEquals(e.message, exception)
+    else:
+      self.fail('%s not raised' % exception)
 
   def testRunOnDepsFailureInvalidCommand(self):
     options = self.Options()
@@ -525,7 +673,8 @@ deps_os = {
     pass
   def test_SaveEntries(self):
     pass
-
+  def test_VarImpl(self):
+    pass
 
 class SCMWrapperTestCase(BaseTestCase):
   class OptionsObject(object):
