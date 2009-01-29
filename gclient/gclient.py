@@ -38,11 +38,13 @@ Files
 __author__ = "darinf@gmail.com (Darin Fisher)"
 __version__ = "0.1"
 
+import errno
 import optparse
 import os
 import stat
 import subprocess
 import sys
+import time
 import urlparse
 import xml.dom.minidom
 
@@ -257,44 +259,69 @@ def RemoveDirectory(*path):
   indexing).  The best suggestion any of the user forums had was to wait a
   bit and try again, so we do that too.  It's hand-waving, but sometimes it
   works. :/
+
+  On POSIX systems, things are a little bit simpler.  The modes of the files
+  to be deleted doesn't matter, only the modes of the directories containing
+  them are significant.  As the directory tree is traversed, each directory
+  has its mode set appropriately before descending into it.  This should
+  result in the entire tree being removed, with the possible exception of
+  *path itself, because nothing attempts to change the mode of its parent.
+  Doing so would be hazardous, as it's not a directory slated for removal.
+  In the ordinary case, this is not a problem: for our purposes, the user
+  will never lack write permission on *path's parent.
   """
   file_path = os.path.join(*path)
   if not os.path.exists(file_path):
     return
 
-  win32 = False
+  if os.path.islink(file_path) or not os.path.isdir(file_path):
+    raise Error("RemoveDirectory asked to remove non-directory %s" % file_path)
+
+  has_win32api = False
   if sys.platform == 'win32':
-    win32 = True
+    has_win32api = True
     # Some people don't have the APIs installed. In that case we'll do without.
     try:
       win32api = __import__('win32api')
       win32con = __import__('win32con')
     except ImportError:
-      win32 = False
+      has_win32api = False
+  else:
+    # On POSIX systems, we need the x-bit set on the directory to access it,
+    # the r-bit to see its contents, and the w-bit to remove files from it.
+    # The actual modes of the files within the directory is irrelevant.
+    os.chmod(file_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
   for fn in os.listdir(file_path):
     fullpath = os.path.join(file_path, fn)
-    if os.path.isfile(fullpath):
-      os.chmod(fullpath, stat.S_IWRITE)
-      if win32:
-        win32api.SetFileAttributes(fullpath, win32con.FILE_ATTRIBUTE_NORMAL)
+
+    # If fullpath is a symbolic link that points to a directory, isdir will
+    # be True, but we don't want to descend into that as a directory, we just
+    # want to remove the link.  Check islink and treat links as ordinary files
+    # would be treated regardless of what they reference.
+    if os.path.islink(fullpath) or not os.path.isdir(fullpath):
+      if sys.platform == 'win32':
+        os.chmod(fullpath, stat.S_IWRITE)
+        if has_win32api:
+          win32api.SetFileAttributes(fullpath, win32con.FILE_ATTRIBUTE_NORMAL)
       try:
         os.remove(fullpath)
       except OSError, e:
-        if e.errno != errno.EACCES:
+        if e.errno != errno.EACCES or sys.platform != 'win32':
           raise
         print 'Failed to delete %s: trying again' % fullpath
         time.sleep(0.1)
         os.remove(fullpath)
-    elif os.path.isdir(fullpath):
+    else:
       RemoveDirectory(fullpath)
 
-  os.chmod(file_path, stat.S_IWRITE)
-  if win32:
-    win32api.SetFileAttributes(file_path, win32con.FILE_ATTRIBUTE_NORMAL)
+  if sys.platform == 'win32':
+    os.chmod(file_path, stat.S_IWRITE)
+    if has_win32api:
+      win32api.SetFileAttributes(file_path, win32con.FILE_ATTRIBUTE_NORMAL)
   try:
     os.rmdir(file_path)
   except OSError, e:
-    if e.errno != errno.EACCES:
+    if e.errno != errno.EACCES or sys.platform != 'win32':
       raise
     print 'Failed to remove %s: trying again' % file_path
     time.sleep(0.1)
