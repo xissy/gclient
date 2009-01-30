@@ -535,8 +535,6 @@ class SCMWrapper(object):
         rev_str = ' at %d' % revision
 
     if from_info.url != components[0]:
-      raise Error("The current %s checkout is from %s but %s was expected" % (
-                      self.relpath, from_info.url, url))
       to_info = CaptureSVNInfo(options, url, '.')
       if from_info.root != to_info.root:
         # We have different roots, so check if we can switch --relocate.
