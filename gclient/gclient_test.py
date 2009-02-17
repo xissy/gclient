@@ -106,6 +106,7 @@ class GclientTestCase(BaseTestCase):
       self.deps_file = deps_file
       self.revisions = []
       self.manually_grab_svn_rev = True
+      self.deps_os = None
 
       # Mox
       self.stdout = test_case.stdout
@@ -682,6 +683,7 @@ class SCMWrapperTestCase(BaseTestCase):
       self.verbose = verbose
       self.revision = revision
       self.manually_grab_svn_rev = True
+      self.deps_os = None
 
       # Mox
       self.stdout = test_case.stdout
