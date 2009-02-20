@@ -4,24 +4,23 @@
 
 `gclient` uses itself to fetch the [http://code.google.com/p/pymox/ mox] object-mocking modules, which it uses in its unit tests.  Here's how you get started:
 
+== For committers ==
+Since trunk/ already contains a .gclient file, you can reuse it directly:
 {{{
-  $ svn co http://gclient.googlecode.com/svn/trunk gclient-dev
+  $ svn co https://gclient.googlecode.com/svn/trunk gclient-dev
   $ cd gclient-dev
   $ python gclient/gclient.py update
 }}}
 
-(If you have commit rights, you probably want to use `https://` instead.)
-
-This will create `gclient` and `pymox` directories in the `gclient-dev` directory.  (Of course, you can name the `gclient-dev` directory anything you want.)
-
-If you already have `gclient` installed (and kinda know what you're doing), you can also use the `gclient config` subcommand to bootstrap yourself (presumably in an empty directory like `gclient-dev`):
-
+== For non-committers ==
+The default .gclient file uses https. So it's better to just ignore it. The following steps are for users without gclient on their system:
 {{{
-  $ gclient config http://gclient.googlecode.com/svn/trunk/gclient
-  $ gclient update
+  $ mkdir gclient-dev
+  $ cd gclient-dev
+  $ svn co http://gclient.googlecode.com/svn/trunk/gclient
+  $ python gclient/gclient.py config http://gclient.googlecode.com/svn/trunk/gclient
+  $ python gclient/gclient.py update
 }}}
-
-(If you have commit rights, you probably want to use `https://` instead.)
 
 = Running the unit tests =
 
@@ -33,6 +32,5 @@ The unit tests are all in the `gclient_test.py` script, which you just feed to `
 
 The unit tests should also work fine when executed from other directories.
 
-= Submitting changes =
-
-The standard `svn commit` if you have commit rights.  (Feel free to ask.)  If not, send email to the maintainers.
+= Code reviews =
+Use `gcl.py`. It is available from [http://dev.chromium.org/developers/how-tos/depottools depot_tools] which happens to also include `gclient.py`. Use `gcl.py help` for more information or email gclient@googlegroups.com if you are really stuck.
