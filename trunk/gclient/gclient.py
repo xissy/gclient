@@ -1108,13 +1108,25 @@ def Main(argv):
                            help="Skip svn up whenever possible by requesting "
                            "actual HEAD revision from the repository")
 
-  options, args = option_parser.parse_args(argv[1:])
-
-  if not args or (len(args) == 1 and args[0] == "help"):
+  if len(argv) < 2:
     # Users don't need to be told to use the 'help' command.
     option_parser.print_help()
     return 1
-  command = args.pop(0)
+  # Add manual support for --version as first argument.
+  if argv[1] == '--version':
+    option_parser.print_version()
+    return 0
+
+  # Add manual support for --help as first argument.
+  if argv[1] == '--help':
+    argv[1] = 'help'
+
+  command = argv[1]
+  options, args = option_parser.parse_args(argv[2:])
+
+  if len(argv) < 3 and command == "help":
+    option_parser.print_help()
+    return 0
 
   # Files used for configuration and state saving.
   options.config_filename = os.environ.get("GCLIENT_FILE", ".gclient")
