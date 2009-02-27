@@ -82,15 +82,34 @@ class BaseTestCase(unittest.TestCase):
   def setUp(self):
     self.mox = mox.Mox()
     # Mock them to be sure nothing bad happens.
-    gclient.FileRead = self.mox.CreateMockAnything()
-    gclient.FileWrite = self.mox.CreateMockAnything()
-    gclient.RemoveDirectory = self.mox.CreateMockAnything()
-    gclient.RunSVN = self.mox.CreateMockAnything()
+    self._CaptureSVN = gclient.CaptureSVN
     gclient.CaptureSVN = self.mox.CreateMockAnything()
+    self._FileRead = gclient.FileRead
+    gclient.FileRead = self.mox.CreateMockAnything()
+    self._FileWrite = gclient.FileWrite
+    gclient.FileWrite = self.mox.CreateMockAnything()
+    self._RemoveDirectory = gclient.RemoveDirectory
+    gclient.RemoveDirectory = self.mox.CreateMockAnything()
+    self._RunSVN = gclient.RunSVN
+    gclient.RunSVN = self.mox.CreateMockAnything()
     # Doesn't seem to work very well:
+    self._os = gclient.os
     gclient.os = self.mox.CreateMock(os)
+    self._sys = gclient.sys
     gclient.sys = self.mox.CreateMock(sys)
+    self._subprocess = gclient.subprocess
     gclient.subprocess = self.mox.CreateMock(subprocess)
+    
+  def tearDown(self):
+    gclient.CaptureSVN = self._CaptureSVN
+    gclient.FileRead = self._FileRead
+    gclient.FileWrite = self._FileWrite
+    gclient.RemoveDirectory = self._RemoveDirectory
+    gclient.RunSVN = self._RunSVN
+    # Doesn't seem to work very well:
+    gclient.os = self._os
+    gclient.sys = self._sys
+    gclient.subprocess = self._subprocess
 
 
 class GclientTestCase(BaseTestCase):
@@ -872,6 +891,42 @@ class SCMWrapperTestCase(BaseTestCase):
                              relpath=self.relpath)
     scm.update(options, self.args)
     self.mox.VerifyAll()
+
+  def testCaptureSvnInfo(self):
+    xml_text = """<?xml version="1.0"?>
+<info>
+<entry
+   kind="dir"
+   path="."
+   revision="35">
+<url>%s</url>
+<repository>
+<root>%s</root>
+<uuid>7b9385f5-0452-0410-af26-ad4892b7a1fb</uuid>
+</repository>
+<wc-info>
+<schedule>normal</schedule>
+<depth>infinity</depth>
+</wc-info>
+<commit
+   revision="35">
+<author>maruel</author>
+<date>2008-12-04T20:12:19.685120Z</date>
+</commit>
+</entry>
+</info>
+""" % (self.url, self.root_dir)
+    options = self.Options(verbose=True)
+    gclient.CaptureSVN(options, ['info', '--xml', self.url],
+                       '.').AndReturn(xml_text)
+    self.mox.ReplayAll()
+    file_info = gclient.CaptureSVNInfo(options, self.url, '.')
+    self.failUnless(file_info.root == self.root_dir)
+    self.failUnless(file_info.url == self.url)
+    self.failUnless(file_info.uuid == '7b9385f5-0452-0410-af26-ad4892b7a1fb')
+    self.failUnless(file_info.revision == 35)
+    self.mox.VerifyAll()
+
 
 
 if __name__ == '__main__':
