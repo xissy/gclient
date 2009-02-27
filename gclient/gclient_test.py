@@ -202,7 +202,7 @@ class TestDoHelp(GclientTestCase):
   def testTooManyArgs(self):
     options = self.Options()
     self.mox.ReplayAll()
-    self.assertRaisesError("unknown subcommand; see 'gclient help'",
+    self.assertRaisesError("unknown subcommand 'config'; see 'gclient help'",
                            gclient.DoHelp, options, ('config',
                                                      'another argument'))
     self.mox.VerifyAll()
@@ -210,7 +210,7 @@ class TestDoHelp(GclientTestCase):
   def testUnknownSubcommand(self):
     options = self.Options()
     self.mox.ReplayAll()
-    self.assertRaisesError("unknown subcommand; see 'gclient help'",
+    self.assertRaisesError("unknown subcommand 'xyzzy'; see 'gclient help'",
                            gclient.DoHelp, options, ('xyzzy',))
     self.mox.VerifyAll()
 
