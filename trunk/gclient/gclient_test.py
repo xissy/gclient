@@ -84,6 +84,8 @@ class BaseTestCase(unittest.TestCase):
     # Mock them to be sure nothing bad happens.
     self._CaptureSVN = gclient.CaptureSVN
     gclient.CaptureSVN = self.mox.CreateMockAnything()
+    self._CaptureSVNInfo = gclient.CaptureSVNInfo
+    gclient.CaptureSVNInfo = self.mox.CreateMockAnything()
     self._FileRead = gclient.FileRead
     gclient.FileRead = self.mox.CreateMockAnything()
     self._FileWrite = gclient.FileWrite
@@ -92,6 +94,8 @@ class BaseTestCase(unittest.TestCase):
     gclient.RemoveDirectory = self.mox.CreateMockAnything()
     self._RunSVN = gclient.RunSVN
     gclient.RunSVN = self.mox.CreateMockAnything()
+    self._RunSVNAndGetFileList = gclient.RunSVNAndGetFileList
+    gclient.RunSVNAndGetFileList = self.mox.CreateMockAnything()
     # Doesn't seem to work very well:
     self._os = gclient.os
     gclient.os = self.mox.CreateMock(os)
@@ -99,13 +103,15 @@ class BaseTestCase(unittest.TestCase):
     gclient.sys = self.mox.CreateMock(sys)
     self._subprocess = gclient.subprocess
     gclient.subprocess = self.mox.CreateMock(subprocess)
-    
+
   def tearDown(self):
     gclient.CaptureSVN = self._CaptureSVN
+    gclient.CaptureSVNInfo = self._CaptureSVNInfo
     gclient.FileRead = self._FileRead
     gclient.FileWrite = self._FileWrite
     gclient.RemoveDirectory = self._RemoveDirectory
     gclient.RunSVN = self._RunSVN
+    gclient.RunSVNAndGetFileList = self._RunSVNAndGetFileList
     # Doesn't seem to work very well:
     gclient.os = self._os
     gclient.sys = self._sys
@@ -390,7 +396,7 @@ class GClientClassTestCase(GclientTestCase):
         ).AndReturn(False)
     options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
         options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args)
+    options.scm_wrapper.RunCommand('update', options, self.args, [])
     gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
         ).AndReturn("Boo = 'a'")
     gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
@@ -473,7 +479,7 @@ deps_os = {
     
     options.scm_wrapper(self.url, self.root_dir, 'src').AndReturn(
         scm_wrapper_src)
-    scm_wrapper_src.RunCommand('update', mox.Func(OptIsRev123), self.args)
+    scm_wrapper_src.RunCommand('update', mox.Func(OptIsRev123), self.args, [])
 
     options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src2)
@@ -487,22 +493,25 @@ deps_os = {
 
     options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(scm_wrapper_webkit)
-    scm_wrapper_webkit.RunCommand('update', mox.Func(OptIsRev42), self.args)
+    scm_wrapper_webkit.RunCommand('update', mox.Func(OptIsRev42), self.args, [])
 
     options.scm_wrapper(
         'http://google-breakpad.googlecode.com/svn/trunk/src@285',
         self.root_dir, 'src/breakpad/bar').AndReturn(scm_wrapper_breakpad)
-    scm_wrapper_breakpad.RunCommand('update', mox.Func(OptIsRevNone), self.args)
+    scm_wrapper_breakpad.RunCommand('update', mox.Func(OptIsRevNone),
+                                    self.args, [])
 
     options.scm_wrapper(cygwin_path, self.root_dir,
                         'src/third_party/cygwin').AndReturn(scm_wrapper_cygwin)
-    scm_wrapper_cygwin.RunCommand('update', mox.Func(OptIsRev333), self.args)
+    scm_wrapper_cygwin.RunCommand('update', mox.Func(OptIsRev333), self.args,
+                                  [])
 
     options.scm_wrapper('svn://random_server:123/trunk/python_24@5580',
                         self.root_dir,
                         'src/third_party/python_24').AndReturn(
                             scm_wrapper_python)
-    scm_wrapper_python.RunCommand('update', mox.Func(OptIsRevNone), self.args)
+    scm_wrapper_python.RunCommand('update', mox.Func(OptIsRevNone), self.args,
+                                  [])
 
     self.mox.ReplayAll()
     client = gclient.GClient(self.root_dir, options)
@@ -547,7 +556,7 @@ deps = {
         ).AndReturn(False)
     options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
         options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args)
+    options.scm_wrapper.RunCommand('update', options, self.args, [])
 
     options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src)
@@ -556,7 +565,7 @@ deps = {
 
     options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args)
+    options.scm_wrapper.RunCommand('update', options, self.args, [])
     
     self.mox.ReplayAll()
     client = gclient.GClient(self.root_dir, options)
@@ -601,7 +610,7 @@ deps = {
         ).AndReturn(False)
     options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
         options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args)
+    options.scm_wrapper.RunCommand('update', options, self.args, [])
 
     options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src)
@@ -610,7 +619,7 @@ deps = {
 
     options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args)
+    options.scm_wrapper.RunCommand('update', options, self.args, [])
     
     self.mox.ReplayAll()
     client = gclient.GClient(self.root_dir, options)
@@ -645,7 +654,7 @@ deps = {
         ).AndReturn(False)
     options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
         options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args)
+    options.scm_wrapper.RunCommand('update', options, self.args, [])
 
     self.mox.ReplayAll()
     client = gclient.GClient(self.root_dir, options)
@@ -703,6 +712,7 @@ class SCMWrapperTestCase(BaseTestCase):
       self.revision = revision
       self.manually_grab_svn_rev = True
       self.deps_os = None
+      self.force = False
 
       # Mox
       self.stdout = test_case.stdout
@@ -767,7 +777,8 @@ class SCMWrapperTestCase(BaseTestCase):
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    scm.revert(options, self.args)
+    file_list = []
+    scm.revert(options, self.args, file_list)
     self.mox.VerifyAll()
     gclient.os.path.isdir = os.path.isdir
 
@@ -782,7 +793,8 @@ class SCMWrapperTestCase(BaseTestCase):
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    scm.revert(options, self.args)
+    file_list = []
+    scm.revert(options, self.args, file_list)
     self.mox.VerifyAll()
     gclient.os.path.isdir = os.path.isdir
 
@@ -801,7 +813,8 @@ class SCMWrapperTestCase(BaseTestCase):
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    scm.revert(options, self.args)
+    file_list = []
+    scm.revert(options, self.args, file_list)
     self.mox.VerifyAll()
     gclient.os.path.isdir = os.path.isdir
 
@@ -813,7 +826,8 @@ class SCMWrapperTestCase(BaseTestCase):
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    self.assertEqual(scm.status(options, self.args), None)
+    file_list = []
+    self.assertEqual(scm.status(options, self.args, file_list), None)
     self.mox.VerifyAll()
 
   # TODO(maruel):  TEST REVISIONS!!!
@@ -821,62 +835,59 @@ class SCMWrapperTestCase(BaseTestCase):
   def testUpdateCheckout(self):
     options = self.Options(verbose=True)
     base_path = os.path.join(self.root_dir, self.relpath)
+    file_info = gclient.PrintableObject()
+    file_info.root = 'blah'
+    file_info.url = self.url
+    file_info.uuid = 'ABC'
+    file_info.revision = 42
     options.path_exists(os.path.join(base_path, '.git')).AndReturn(False)
     # Checkout or update.
     options.path_exists(base_path).AndReturn(False)
-    gclient.RunSVN(options, ['checkout', self.url, base_path], self.root_dir)
+    print >>options.stdout, "\n_____ asf at 42"
+    #print >>options.stdout, "\n________ running 'svn checkout %s %s' in '%s'" % (
+    #    self.url, base_path, os.path.abspath(self.root_dir))
 
+    gclient.CaptureSVNInfo(options, os.path.join(base_path, "."), '.'
+        ).AndReturn(file_info)
+    # Cheat a bit here.
+    gclient.CaptureSVNInfo(options, file_info.url, '.').AndReturn(file_info)
+    files_list = self.mox.CreateMockAnything()
+    gclient.RunSVNAndGetFileList(options, ['checkout', self.url, base_path],
+                                 self.root_dir, files_list)
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    scm.update(options, ())
+    #file_list = []
+    scm.update(options, (), files_list)
     self.mox.VerifyAll()
 
   def testUpdateUpdate(self):
-    xml_text = """<?xml version="1.0"?>
-<info>
-<entry
-   kind="dir"
-   path="."
-   revision="35">
-<url>%s</url>
-<repository>
-<root>%s</root>
-<uuid>7b9385f5-0452-0410-af26-ad4892b7a1fb</uuid>
-</repository>
-<wc-info>
-<schedule>normal</schedule>
-<depth>infinity</depth>
-</wc-info>
-<commit
-   revision="35">
-<author>maruel</author>
-<date>2008-12-04T20:12:19.685120Z</date>
-</commit>
-</entry>
-</info>
-""" % (self.url, self.url)
     options = self.Options(verbose=True)
     base_path = os.path.join(self.root_dir, self.relpath)
     options.force = True
+    file_info = gclient.PrintableObject()
+    file_info.root = 'blah'
+    file_info.url = self.url
+    file_info.uuid = 'ABC'
+    file_info.revision = 42
     options.path_exists(os.path.join(base_path, '.git')).AndReturn(False)
     # Checkout or update.
     options.path_exists(base_path).AndReturn(True)
-    gclient.CaptureSVN(options, ['info', '--xml', os.path.join(base_path, '.')],
-                       '.').AndReturn(xml_text)
+    gclient.CaptureSVNInfo(options, os.path.join(base_path, "."), '.'
+        ).AndReturn(file_info)
+    # Cheat a bit here.
+    gclient.CaptureSVNInfo(options, file_info.url, '.').AndReturn(file_info)
     additional_args = []
     if options.manually_grab_svn_rev:
-      gclient.CaptureSVN(options, ['info', '--xml', self.url],
-                         '.').AndReturn(xml_text)
-      additional_args = ['--revision', '35']
-    gclient.RunSVN(options, ['update', base_path] + additional_args,
-                   self.root_dir).AndReturn(xml_text)
-    # print >>options.stdout, ("\n_____ updating %s%s" % (self.relpath, ' at 35'))
+      additional_args = ['--revision', str(file_info.revision)]
+    files_list = []
+    gclient.RunSVNAndGetFileList(options, ['update', base_path] + additional_args,
+                                 self.root_dir, files_list)
 
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    scm.update(options, ())
+    scm.update(options, (), files_list)
     self.mox.VerifyAll()
 
   def testUpdateGit(self):
@@ -889,7 +900,8 @@ class SCMWrapperTestCase(BaseTestCase):
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
                              relpath=self.relpath)
-    scm.update(options, self.args)
+    file_list = []
+    scm.update(options, self.args, file_list)
     self.mox.VerifyAll()
 
   def testCaptureSvnInfo(self):
@@ -920,13 +932,12 @@ class SCMWrapperTestCase(BaseTestCase):
     gclient.CaptureSVN(options, ['info', '--xml', self.url],
                        '.').AndReturn(xml_text)
     self.mox.ReplayAll()
-    file_info = gclient.CaptureSVNInfo(options, self.url, '.')
+    file_info = self._CaptureSVNInfo(options, self.url, '.')
     self.failUnless(file_info.root == self.root_dir)
     self.failUnless(file_info.url == self.url)
     self.failUnless(file_info.uuid == '7b9385f5-0452-0410-af26-ad4892b7a1fb')
     self.failUnless(file_info.revision == 35)
     self.mox.VerifyAll()
-
 
 
 if __name__ == '__main__':
