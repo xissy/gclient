@@ -125,12 +125,13 @@ class GclientTestCase(BaseTestCase):
     def __init__(self, test_case, verbose=False, spec=None,
                  config_filename='a_file_name',
                  entries_filename='a_entry_file_name',
-                 deps_file='a_deps_file_name'):
+                 deps_file='a_deps_file_name', force=False):
       self.verbose = verbose
       self.spec = spec
       self.config_filename = config_filename
       self.entries_filename = entries_filename
       self.deps_file = deps_file
+      self.force = force
       self.revisions = []
       self.manually_grab_svn_rev = True
       self.deps_os = None
@@ -162,7 +163,8 @@ class GclientTestCase(BaseTestCase):
 class GClientCommandsTestCase(BaseTestCase):
   def testCommands(self):
     known_commands = [gclient.DoConfig, gclient.DoDiff, gclient.DoHelp,
-                      gclient.DoStatus, gclient.DoUpdate, gclient.DoRevert]
+                      gclient.DoStatus, gclient.DoUpdate, gclient.DoRevert,
+                      gclient.DoRunHooks]
     for (k,v) in gclient.gclient_command_map.iteritems():
       # If it fails, you need to add a test case for the new command.
       self.assert_(v in known_commands)
@@ -289,6 +291,18 @@ class TestDoStatus(GenericCommandTestCase):
     self.BadClient(gclient.DoStatus)
 
 
+class TestDoRunHooks(GenericCommandTestCase):
+  def Options(self, verbose=False, *args, **kwargs):
+    return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
+  
+  def testGoodClient(self):
+    self.ReturnValue('runhooks', gclient.DoRunHooks, 0)
+  def testError(self):
+    self.ReturnValue('runhooks', gclient.DoRunHooks, 42)
+  def testBadClient(self):
+    self.BadClient(gclient.DoStatus)
+
+
 class TestDoUpdate(GenericCommandTestCase):
   def Options(self, verbose=False, *args, **kwargs):
     return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
@@ -336,7 +350,8 @@ class GClientClassTestCase(GclientTestCase):
       'SetDefaultConfig', '__class__', '__delattr__', '__dict__', '__doc__',
       '__getattribute__', '__hash__', '__init__', '__module__', '__new__',
       '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__str__',
-      '__weakref__', 'supported_commands', '_DepInfo' ]
+      '__weakref__', 'supported_commands', '_DepInfo', '_RunHookAction',
+      '_RunHooks' ]
 
     # If you add a member, be sure to add the relevant test!
     self.assertEqual(sorted(dir(gclient.GClient)), sorted(members))
@@ -886,7 +901,8 @@ class SCMWrapperTestCase(BaseTestCase):
   def testStatus(self):
     options = self.Options(verbose=True)
     base_path = os.path.join(self.root_dir, self.relpath)
-    gclient.RunSVN(options, ['status'] + self.args, base_path).AndReturn(None)
+    gclient.RunSVNAndGetFileList(options, ['status'] + self.args, base_path,
+                                 []).AndReturn(None)
 
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
