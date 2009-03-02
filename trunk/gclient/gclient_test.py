@@ -30,8 +30,6 @@ import unittest
 directory, _file = os.path.split(__file__)
 if directory:
   directory += os.sep
-sys.path.append(os.path.abspath(directory + 'pymox'))
-# Old gclient versions will put pymox as a sibling to the current directory.
 sys.path.append(os.path.abspath(directory + '../pymox'))
 
 import gclient
@@ -346,12 +344,12 @@ class GClientClassTestCase(GclientTestCase):
   def testDir(self):
     members = ['ConfigContent', 'FromImpl', '_VarImpl', '_GetAllDeps',
       '_GetDefaultSolutionDeps', 'GetVar', '_LoadConfig', 'LoadCurrentConfig',
-      '_ReadEntries', 'RunOnDeps', 'SaveConfig', '_SaveEntries', 'SetConfig',
-      'SetDefaultConfig', '__class__', '__delattr__', '__dict__', '__doc__',
-      '__getattribute__', '__hash__', '__init__', '__module__', '__new__',
-      '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__str__',
-      '__weakref__', 'supported_commands', '_DepInfo', '_RunHookAction',
-      '_RunHooks' ]
+      '_ReadEntries', '_RunHookAction', '_RunHooks', 'RunOnDeps', 'SaveConfig',
+      '_SaveEntries', 'SetConfig', 'SetDefaultConfig', '__class__',
+      '__delattr__', '__dict__', '__doc__', '__getattribute__', '__hash__',
+      '__init__', '__module__', '__new__', '__reduce__', '__reduce_ex__',
+      '__repr__', '__setattr__', '__str__', '__weakref__',
+      'supported_commands']
 
     # If you add a member, be sure to add the relevant test!
     self.assertEqual(sorted(dir(gclient.GClient)), sorted(members))
@@ -448,8 +446,7 @@ class GClientClassTestCase(GclientTestCase):
   'custom_deps': {},
 }, ]""" % self.url
     # Fake DEPS file.
-    deps_content = """use_relative_paths = True
-deps = {
+    deps_content = """deps = {
   'src/breakpad/bar': 'http://google-breakpad.googlecode.com/svn/trunk/src@285',
   'foo/third_party/WebKit': '/trunk/deps/third_party/WebKit',
   'src/third_party/cygwin': '/trunk/deps/third_party/cygwin@3248',
@@ -485,8 +482,6 @@ deps_os = {
     options.revisions = [ 'src@123', 'foo/third_party/WebKit@42',
                           'src/third_party/cygwin@333' ]
 
-    deps_base_path = os.path.join(self.root_dir, 'src')
-
     # Also, pymox doesn't verify the order of function calling w.r.t. different
     # mock objects. Pretty lame. So reorder as we wish to make it clearer.
     gclient.FileRead(os.path.join(self.root_dir, 'src', options.deps_file)
@@ -496,38 +491,39 @@ deps_os = {
 
     options.path_exists(os.path.join(self.root_dir, options.entries_filename)
         ).AndReturn(False)
-
+    
     options.scm_wrapper(self.url, self.root_dir, 'src').AndReturn(
         scm_wrapper_src)
     scm_wrapper_src.RunCommand('update', mox.Func(OptIsRev123), self.args, [])
 
-    options.scm_wrapper(self.url, deps_base_path,
+    options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src2)
     scm_wrapper_src2.FullUrlForRelativeUrl('/trunk/deps/third_party/cygwin@3248'
         ).AndReturn(cygwin_path)
 
-    options.scm_wrapper(self.url, deps_base_path,
+    options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src2)
     scm_wrapper_src2.FullUrlForRelativeUrl('/trunk/deps/third_party/WebKit'
         ).AndReturn(webkit_path)
 
-    options.scm_wrapper(webkit_path, deps_base_path,
+    options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(scm_wrapper_webkit)
     scm_wrapper_webkit.RunCommand('update', mox.Func(OptIsRev42), self.args, [])
 
     options.scm_wrapper(
         'http://google-breakpad.googlecode.com/svn/trunk/src@285',
-        deps_base_path, 'src/breakpad/bar').AndReturn(scm_wrapper_breakpad)
+        self.root_dir, 'src/breakpad/bar').AndReturn(scm_wrapper_breakpad)
     scm_wrapper_breakpad.RunCommand('update', mox.Func(OptIsRevNone),
                                     self.args, [])
 
-    options.scm_wrapper(cygwin_path, deps_base_path,
+    options.scm_wrapper(cygwin_path, self.root_dir,
                         'src/third_party/cygwin').AndReturn(scm_wrapper_cygwin)
     scm_wrapper_cygwin.RunCommand('update', mox.Func(OptIsRev333), self.args,
                                   [])
 
     options.scm_wrapper('svn://random_server:123/trunk/python_24@5580',
-                        deps_base_path, 'src/third_party/python_24').AndReturn(
+                        self.root_dir,
+                        'src/third_party/python_24').AndReturn(
                             scm_wrapper_python)
     scm_wrapper_python.RunCommand('update', mox.Func(OptIsRevNone), self.args,
                                   [])
@@ -537,60 +533,7 @@ deps_os = {
     client.SetConfig(gclient_config)
     client.RunOnDeps('update', self.args)
     self.mox.VerifyAll()
-
-  def testRunOnDepsNonRelativePaths(self):
-    #Fake .gclient file.
-    name = 'testRunOnDepsNonRelativePaths_solution_name'
-    gclient_config = """solutions = [ {
-  'name': '%s',
-  'url': '%s',
-  'custom_deps': {}
-}, ]""" % (name, self.url)
-
-    #Fake DEPS file.
-    deps_content = """deps = {
-  'foo/third_party/WebKit': '/trunk/deps/third_party/WebKit',
-}"""
-
-    entries_content = (
-      'entries = [\n  "%s",\n'
-      '  "foo/third_party/WebKit",\n'
-      ']\n') % name
-    webkit_path = 'dummy path webkit'
-
-    #pymox has trouble mocking the class object and not a class instance.
-    self.scm_wrapper = self.mox.CreateMockAnything()
-    scm_wrapper_webkit = self.mox.CreateMock(gclient.SCMWrapper)
-    scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
-
-    options = self.Options()
-
-    gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
-        ).AndReturn(deps_content)
-    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
-        entries_content)
-
-    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
-        ).AndReturn(False)
-    options.scm_wrapper(self.url, self.root_dir, name).AndReturn(
-        options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args, [])
-
-    options.scm_wrapper(self.url, self.root_dir,
-                        None).AndReturn(scm_wrapper_src)
-    scm_wrapper_src.FullUrlForRelativeUrl('/trunk/deps/third_party/WebKit'
-        ).AndReturn(webkit_path)
-
-    options.scm_wrapper(webkit_path, self.root_dir, 'foo/third_party/WebKit'
-        ).AndReturn(options.scm_wrapper)
-    options.scm_wrapper.RunCommand('update', options, self.args, [])
     
-    self.mox.ReplayAll()
-    client = gclient.GClient(self.root_dir, options)
-    client.SetConfig(gclient_config)
-    client.RunOnDeps('update', self.args)
-    self.mox.VerifyAll()
-
   def testRunOnDepsSuccessVars(self):
     # Fake .gclient file.
     name = 'testRunOnDepsSuccessVars_solution_name'
@@ -601,8 +544,7 @@ deps_os = {
   'custom_vars': {},
 }, ]""" % (name, self.url)
     # Fake DEPS file.
-    deps_content = """use_relative_paths = True
-vars = {
+    deps_content = """vars = {
   'webkit': '/trunk/bar/',
 }
 deps = {
@@ -620,9 +562,6 @@ deps = {
     scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
  
     options = self.Options()
-
-    deps_base_path = os.path.join(self.root_dir, name)
-
     gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
         ).AndReturn(deps_content)
     gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
@@ -634,12 +573,12 @@ deps = {
         options.scm_wrapper)
     options.scm_wrapper.RunCommand('update', options, self.args, [])
 
-    options.scm_wrapper(self.url, deps_base_path,
+    options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src)
     scm_wrapper_src.FullUrlForRelativeUrl('/trunk/bar/WebKit'
         ).AndReturn(webkit_path)
 
-    options.scm_wrapper(webkit_path, deps_base_path,
+    options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
     options.scm_wrapper.RunCommand('update', options, self.args, [])
     
@@ -659,8 +598,7 @@ deps = {
   'custom_vars': {'webkit': '/trunk/bar_custom/'},
 }, ]""" % (name, self.url)
     # Fake DEPS file.
-    deps_content = """use_relative_paths = True
-vars = {
+    deps_content = """vars = {
   'webkit': '/trunk/bar/',
 }
 deps = {
@@ -678,9 +616,6 @@ deps = {
     scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
  
     options = self.Options()
-
-    deps_base_path = os.path.join(self.root_dir, name)
-
     gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
         ).AndReturn(deps_content)
     gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
@@ -692,12 +627,12 @@ deps = {
         options.scm_wrapper)
     options.scm_wrapper.RunCommand('update', options, self.args, [])
 
-    options.scm_wrapper(self.url, deps_base_path,
+    options.scm_wrapper(self.url, self.root_dir,
                         None).AndReturn(scm_wrapper_src)
     scm_wrapper_src.FullUrlForRelativeUrl('/trunk/bar_custom/WebKit'
         ).AndReturn(webkit_path)
 
-    options.scm_wrapper(webkit_path, deps_base_path,
+    options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
     options.scm_wrapper.RunCommand('update', options, self.args, [])
     
@@ -910,6 +845,7 @@ class SCMWrapperTestCase(BaseTestCase):
     file_list = []
     self.assertEqual(scm.status(options, self.args, file_list), None)
     self.mox.VerifyAll()
+
 
   # TODO(maruel):  TEST REVISIONS!!!
   # TODO(maruel):  TEST RELOCATE!!!
