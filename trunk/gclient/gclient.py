@@ -1033,14 +1033,14 @@ class GClient(object):
                                                    custom_vars)
 
       for d in solution_deps:
+        dep_info = solution_deps[d]
         if "custom_deps" in solution and d in solution["custom_deps"]:
           # Dependency is overriden.
           url = solution["custom_deps"][d]
           if url is None:
             continue
-          dep_info = self._DepInfo(d.GetBasePath(), url)
+          dep_info = self._DepInfo(dep_info.GetBasePath(), url)
         else:
-          dep_info = solution_deps[d]
           # if we have a From reference dependent on another solution, then
           # just skip the From reference. When we pull deps for the solution,
           # we will take care of this dependency.
