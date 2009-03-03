@@ -956,7 +956,18 @@ class GClient(object):
     if 'hooks' in local_scope:
       self._deps_hooks.extend(local_scope['hooks'])
 
-    return deps
+    # If use_relative_paths is set in the DEPS file, regenerate
+    # the dictionary using paths relative to the directory containing
+    # the DEPS file.
+    if local_scope.get('use_relative_paths'):
+      rel_deps = {}
+      for d, url in deps.items():
+        # normpath is required to allow DEPS to use .. in their
+        # dependency local path.
+        rel_deps[os.path.normpath(os.path.join(solution_name, d))] = url
+      return rel_deps
+    else:
+      return deps
 
   def _GetAllDeps(self, solution_urls):
     """Get the complete list of dependencies for the client.

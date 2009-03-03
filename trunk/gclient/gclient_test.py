@@ -395,6 +395,213 @@ class GClientClassTestCase(GclientTestCase):
     client = gclient.GClient.LoadCurrentConfig(options, self.root_dir)
     self.mox.VerifyAll()
 
+  def testRunOnDepsRelativePaths(self):
+    solution_name = 'testRunOnDepsRelativePaths_solution_name'
+    gclient_config = (
+      "solutions = [ {\n"
+      "  'name': '%s',\n"
+      "  'url': '%s',\n"
+      "  'custom_deps': {},\n"
+      "} ]\n"
+    ) % (solution_name, self.url)
+
+    deps = (
+      "use_relative_paths = True\n"
+      "deps = {\n"
+      "  'src/t': 'svn://scm.t/trunk',\n"
+      "}\n")
+
+    entries_content = (
+      'entries = [\n'
+      '  "%s/src/t",\n'
+      '  "%s",\n'
+      ']\n'
+    ) % (solution_name, solution_name)
+
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_sol = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_t = self.mox.CreateMock(gclient.SCMWrapper)
+
+    options = self.Options()
+
+    # Expect a check for the entries file and we say there is not one.
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+
+    # An scm will be requested for the solution.
+    options.scm_wrapper(self.url, self.root_dir, solution_name
+        ).AndReturn(scm_wrapper_sol)
+    # Then an update will be performed.
+    scm_wrapper_sol.RunCommand('update', options, self.args, [])
+    # Then an attempt will be made to read its DEPS file.
+    gclient.FileRead(os.path.join(self.root_dir,
+                     solution_name,
+                     options.deps_file)).AndReturn(deps)
+
+    # Next we expect an scm to be request for dep src/t but it should
+    # use the url specified in deps and the relative path should now
+    # be relative to the DEPS file.
+    options.scm_wrapper(
+        'svn://scm.t/trunk',
+        self.root_dir,
+        os.path.join(solution_name, "src/t")).AndReturn(scm_wrapper_t)
+    scm_wrapper_t.RunCommand('update', options, self.args, [])
+
+    # After everything is done, an attempt is made to write an entries
+    # file.
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+        entries_content)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
+  def testRunOnDepsCustomDeps(self):
+    solution_name = 'testRunOnDepsCustomDeps_solution_name'
+    gclient_config = (
+      "solutions = [ {\n"
+      "  'name': '%s',\n"
+      "  'url': '%s',\n"
+      "  'custom_deps': {\n"
+      "    'src/t': 'svn://custom.t/trunk',\n"
+      "    'src/b': None,\n"
+      "  }\n} ]\n"
+    ) % (solution_name, self.url)
+
+    deps = (
+      "deps = {\n"
+      "  'src/t': 'svn://original.t/trunk',\n"
+      "  'src/b': 'svn://original.b/trunk',\n"
+      "}\n"
+    )
+
+    entries_content = (
+      'entries = [\n'
+      '  "%s",\n'
+      '  "src/t",\n'
+      ']\n'
+    ) % solution_name
+
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_sol = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_t = self.mox.CreateMock(gclient.SCMWrapper)
+
+    options = self.Options()
+
+    # Expect a check for the entries file and we say there is not one.
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+
+    # An scm will be requested for the solution.
+    options.scm_wrapper(self.url, self.root_dir, solution_name
+        ).AndReturn(scm_wrapper_sol)
+    # Then an update will be performed.
+    scm_wrapper_sol.RunCommand('update', options, self.args, [])
+    # Then an attempt will be made to read its DEPS file.
+    gclient.FileRead(os.path.join(self.root_dir,
+                     solution_name,
+                     options.deps_file)).AndReturn(deps)
+
+    # Next we expect an scm to be request for dep src/t but it should
+    # use the url specified in custom_deps.
+    options.scm_wrapper('svn://custom.t/trunk',
+                        self.root_dir,
+                        "src/t").AndReturn(scm_wrapper_t)
+    scm_wrapper_t.RunCommand('update', options, self.args, [])
+
+    # NOTE: the dep src/b should not create an scm at all.
+
+    # After everything is done, an attempt is made to write an entries
+    # file.
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+        entries_content)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
+  # Regression test for Issue #11.
+  # http://code.google.com/p/gclient/issues/detail?id=11
+  def testRunOnDepsSharedDependency(self):
+    name_a = 'testRunOnDepsSharedDependency_a'
+    name_b = 'testRunOnDepsSharedDependency_b'
+
+    url_a = self.url + '/a'
+    url_b = self.url + '/b'
+
+    # config declares two solutions and each has a dependency to place
+    # http://svn.t/trunk at src/t.
+    gclient_config = (
+      "solutions = [ {\n"
+      "  'name': '%s',\n"
+      "  'url': '%s',\n"
+      "  'custom_deps': {},\n"
+      "}, {\n"
+      "  'name': '%s',\n"
+      "  'url': '%s',\n"
+      "  'custom_deps': {},\n"
+      "}\n]\n") % (name_a, url_a, name_b, url_b)
+
+    deps_b = deps_a = (
+      "deps = {\n"
+      "  'src/t' : 'http://svn.t/trunk',\n"
+    "}\n")
+
+    entries_content = (
+      'entries = [\n  "%s",\n'
+      '  "%s",\n'
+      '  "src/t",\n'
+      ']\n') % (name_a, name_b)
+
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_a = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_b = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_dep = self.mox.CreateMock(gclient.SCMWrapper)
+
+    options = self.Options()
+
+    # Expect a check for the entries file and we say there is not one.
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+
+    # An scm will be requested for the first solution.
+    options.scm_wrapper(url_a, self.root_dir, name_a).AndReturn(
+        scm_wrapper_a)
+    # Then an attempt will be made to read it's DEPS file.
+    gclient.FileRead(os.path.join(self.root_dir, name_a, options.deps_file)
+        ).AndReturn(deps_a)
+    # Then an update will be performed.
+    scm_wrapper_a.RunCommand('update', options, self.args, [])
+
+    # An scm will be requested for the second solution.
+    options.scm_wrapper(url_b, self.root_dir, name_b).AndReturn(
+        scm_wrapper_b)
+    # Then an attempt will be made to read its DEPS file.
+    gclient.FileRead(os.path.join(self.root_dir, name_b, options.deps_file)
+        ).AndReturn(deps_b)
+    # Then an update will be performed.
+    scm_wrapper_b.RunCommand('update', options, self.args, [])
+
+    # Finally, an scm is requested for the shared dep.
+    options.scm_wrapper('http://svn.t/trunk', self.root_dir, 'src/t'
+        ).AndReturn(scm_wrapper_dep)
+    # And an update is run on it.
+    scm_wrapper_dep.RunCommand('update', options, self.args, [])
+
+    # After everything is done, an attempt is made to write an entries file.
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+        entries_content)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
   def testRunOnDepsSuccess(self):
     # Fake .gclient file.
     name = 'testRunOnDepsSuccess_solution_name'
@@ -533,7 +740,7 @@ deps_os = {
     client.SetConfig(gclient_config)
     client.RunOnDeps('update', self.args)
     self.mox.VerifyAll()
-    
+
   def testRunOnDepsSuccessVars(self):
     # Fake .gclient file.
     name = 'testRunOnDepsSuccessVars_solution_name'
