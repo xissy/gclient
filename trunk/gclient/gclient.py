@@ -386,8 +386,19 @@ def SubprocessCall(command, in_directory, out):
   # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for the
   # executable, but shell=True makes subprocess on Linux fail when it's called
   # with a list because it only tries to execute the first item in the list.
-  rv = subprocess.call(command, cwd=in_directory,
-                       shell=(sys.platform == 'win32'))
+  # Also, we need to forward stdout/stderr to prevent weird re-ordering of 
+  # output. This has to be done on a per byte basis to make sure it is not
+  # buffered: normally buffering is done for each line, but if svn requests
+  # input, no end-of-line character is output after the prompt and it would not
+  # show up.
+  svn_process = subprocess.Popen(command, bufsize=0, cwd=in_directory, 
+      shell=(sys.platform == 'win32'), stdout=subprocess.PIPE,
+      stderr=subprocess.STDOUT)
+  in_byte = svn_process.stdout.read(1)
+  while in_byte:
+    options.stdout.write(in_byte)
+    in_byte = svn_process.stdout.read(1)
+  rv = svn_process.returncode
 
   if rv:
     raise Error("failed to run command: %s" % " ".join(command))
