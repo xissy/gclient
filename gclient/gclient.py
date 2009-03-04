@@ -100,6 +100,7 @@ a wrapper for managing a set of client modules in svn.
 Version """ + __version__ + """
 
 subcommands:
+   cleanup
    config
    diff
    revert
@@ -149,6 +150,15 @@ Examples:
 """)
 
 COMMAND_USAGE_TEXT = {
+    "cleanup":
+    """Clean up all working copies, using 'svn cleanup' for each module.
+Additional options and args may be passed to 'svn cleanup'.
+
+usage: cleanup [options] [--] [svn cleanup args/options]
+
+Valid options:
+  --verbose           : output additional diagnostics
+""",
     "config": """Create a .gclient file in the current directory; this
 specifies the configuration for further commands.  After update/sync,
 top-level DEPS files in each module are read to determine dependent
@@ -627,6 +637,7 @@ class SCMWrapper(object):
       file_list = []
 
     commands = {
+          'cleanup':  self.cleanup,
           'update':   self.update,
           'revert':   self.revert,
           'status':   self.status,
@@ -638,6 +649,12 @@ class SCMWrapper(object):
       raise Error('Unknown command %s' % command)
 
     return commands[command](options, args, file_list)
+
+  def cleanup(self, options, args, file_list):
+    """Cleanup working copy."""
+    command = ['cleanup']
+    command.extend(args)
+    RunSVN(options, command, os.path.join(self._root_dir, self.relpath))
 
   def diff(self, options, args, file_list):
     # NOTE: This function does not currently modify file_list.
@@ -799,7 +816,8 @@ class SCMWrapper(object):
 class GClient(object):
   """Object that represent a gclient checkout."""
 
-  supported_commands = ['diff', 'revert', 'status', 'update', 'runhooks']
+  supported_commands = ['cleanup', 'diff', 'revert', 'status', 'update', 
+      'runhooks']
 
   def __init__(self, root_dir, options):
     self._root_dir = root_dir
@@ -1193,6 +1211,23 @@ class GClient(object):
 ## gclient commands.
 
 
+def DoCleanup(options, args):
+  """Handle the cleanup subcommand.
+
+  Raises:
+    Error: if client isn't configured properly.
+  """
+  client = options.gclient.LoadCurrentConfig(options)
+  if not client:
+    raise Error("client not configured; see 'gclient config'")
+  if options.verbose:
+    # Print out the .gclient file.  This is longer than if we just printed the
+    # client dict, but more legible, and it might contain helpful comments.
+    print >>options.stdout, client.ConfigContent()
+  options.verbose = True
+  return client.RunOnDeps('cleanup', args)
+
+
 def DoConfig(options, args):
   """Handle the config subcommand.
 
@@ -1312,6 +1347,7 @@ def DoRunHooks(options, args):
 
 
 gclient_command_map = {
+    "cleanup": DoCleanup,
     "config": DoConfig,
     "diff": DoDiff,
     "help": DoHelp,
