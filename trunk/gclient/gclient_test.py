@@ -160,15 +160,14 @@ class GclientTestCase(BaseTestCase):
 
 class GClientCommandsTestCase(BaseTestCase):
   def testCommands(self):
-    known_commands = [gclient.DoConfig, gclient.DoDiff, gclient.DoHelp,
-                      gclient.DoStatus, gclient.DoUpdate, gclient.DoRevert,
-                      gclient.DoRunHooks]
+    known_commands = [gclient.DoCleanup, gclient.DoConfig, gclient.DoDiff, 
+                      gclient.DoHelp, gclient.DoStatus, gclient.DoUpdate, 
+                      gclient.DoRevert, gclient.DoRunHooks]
     for (k,v) in gclient.gclient_command_map.iteritems():
       # If it fails, you need to add a test case for the new command.
       self.assert_(v in known_commands)
     self.mox.ReplayAll()
     self.mox.VerifyAll()
-
 
 class TestDoConfig(GclientTestCase):
   def setUp(self):
@@ -276,11 +275,15 @@ class GenericCommandTestCase(GclientTestCase):
     self.assertEquals(result, 0)
     self.mox.VerifyAll()
 
+class TestDoCleanup(GenericCommandTestCase):
+  def testGoodClient(self):
+    self.ReturnValue('cleanup', gclient.DoCleanup, 0)
+  def testError(self):
+    self.ReturnValue('cleanup', gclient.DoCleanup, 42)
+  def testBadClient(self):
+    self.BadClient(gclient.DoCleanup)
 
 class TestDoStatus(GenericCommandTestCase):
-  def Options(self, verbose=False, *args, **kwargs):
-    return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
-  
   def testGoodClient(self):
     self.ReturnValue('status', gclient.DoStatus, 0)
   def testError(self):
@@ -298,7 +301,7 @@ class TestDoRunHooks(GenericCommandTestCase):
   def testError(self):
     self.ReturnValue('runhooks', gclient.DoRunHooks, 42)
   def testBadClient(self):
-    self.BadClient(gclient.DoStatus)
+    self.BadClient(gclient.DoRunHooks)
 
 
 class TestDoUpdate(GenericCommandTestCase):
@@ -413,10 +416,10 @@ class GClientClassTestCase(GclientTestCase):
 
     entries_content = (
       'entries = [\n'
-      '  "%s/src/t",\n'
+      '  "%s",\n'
       '  "%s",\n'
       ']\n'
-    ) % (solution_name, solution_name)
+    ) % (os.path.join(solution_name, 'src', 't'), solution_name)
 
     self.scm_wrapper = self.mox.CreateMockAnything()
     scm_wrapper_sol = self.mox.CreateMock(gclient.SCMWrapper)
@@ -444,7 +447,7 @@ class GClientClassTestCase(GclientTestCase):
     options.scm_wrapper(
         'svn://scm.t/trunk',
         self.root_dir,
-        os.path.join(solution_name, "src/t")).AndReturn(scm_wrapper_t)
+        os.path.join(solution_name, "src", "t")).AndReturn(scm_wrapper_t)
     scm_wrapper_t.RunCommand('update', options, self.args, [])
 
     # After everything is done, an attempt is made to write an entries
@@ -955,7 +958,7 @@ class SCMWrapperTestCase(BaseTestCase):
       '__delattr__', '__dict__', '__doc__', '__getattribute__',
       '__hash__', '__init__', '__module__', '__new__', '__reduce__',
       '__reduce_ex__', '__repr__', '__setattr__', '__str__', '__weakref__',
-      'diff', 'revert', 'status', 'update']
+      'cleanup', 'diff', 'revert', 'status', 'update']
 
     # If you add a member, be sure to add the relevant test!
     self.assertEqual(sorted(dir(gclient.SCMWrapper)), sorted(members))
