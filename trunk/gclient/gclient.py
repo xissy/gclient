@@ -389,40 +389,19 @@ def SubprocessCall(command, in_directory, out):
 
   Raises an Error exception if command fails.
   """
-
-  print >> out, ("\n________ running \'%s\' in \'%s\'"
-      % (' '.join(command), in_directory))
-
-  # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for the
-  # executable, but shell=True makes subprocess on Linux fail when it's called
-  # with a list because it only tries to execute the first item in the list.
-  # Also, we need to forward stdout/stderr to prevent weird re-ordering of 
-  # output. This has to be done on a per byte basis to make sure it is not
-  # buffered: normally buffering is done for each line, but if svn requests
-  # input, no end-of-line character is output after the prompt and it would not
-  # show up.
-  svn_process = subprocess.Popen(command, bufsize=0, cwd=in_directory, 
-      shell=(sys.platform == 'win32'), stdout=subprocess.PIPE,
-      stderr=subprocess.STDOUT)
-  in_byte = svn_process.stdout.read(1)
-  while in_byte:
-    options.stdout.write(in_byte)
-    in_byte = svn_process.stdout.read(1)
-  rv = svn_process.returncode
-
-  if rv:
-    raise Error("failed to run command: %s" % " ".join(command))
+  # Call subprocess and capture nothing:
+  SubprocessCallAndCapture(command, in_directory, out)
 
 
-def SubprocessCallAndCapture(command, in_directory, out, pattern,
-                             capture_list):
+def SubprocessCallAndCapture(command, in_directory, out, pattern = None,
+                             capture_list = None):
   """Runs command, a list, in directory in_directory.
 
   A message indicating what is being done, as well as the command's stdout,
   is printed to out.
 
-  Any line in the output matching pattern will have its first match group
-  appended to capture_list.
+  If a pattern is specified, any line in the output matching pattern will have
+  its first match group appended to capture_list.
 
   Raises an Error exception if command fails.
   """
@@ -433,26 +412,28 @@ def SubprocessCallAndCapture(command, in_directory, out, pattern,
   # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for the
   # executable, but shell=True makes subprocess on Linux fail when it's called
   # with a list because it only tries to execute the first item in the list.
-  kid = subprocess.Popen(command, cwd=in_directory, stdout=subprocess.PIPE,
-                         shell=(sys.platform == 'win32'))
+  kid = subprocess.Popen(command, bufsize=0, cwd=in_directory, 
+      shell=(sys.platform == 'win32'), stdout=subprocess.PIPE)
 
-  compiled_pattern = re.compile(pattern)
+  if pattern:
+    compiled_pattern = re.compile(pattern)
 
-  # Use this instead of |for line in kid.stdout| because the latter can
-  # introduce additional buffering.  This method allows data to be collected
-  # from kid.stdout as soon as it's placed there.
-  while True:
-    line = kid.stdout.readline()
-    if len(line) == 0:
-      break
-
-    line = line.rstrip('\r\n')
-    print line
-
-    match = compiled_pattern.search(line)
-    if match:
-      capture_list.append(match.group(1))
-
+  # Also, we need to forward stdout to prevent weird re-ordering of output. 
+  # This has to be done on a per byte basis to make sure it is not buffered: 
+  # normally buffering is done for each line, but if svn requests input, no 
+  # end-of-line character is output after the prompt and it would not show up.
+  in_byte = kid.stdout.read(1)
+  in_line = ""
+  while in_byte:
+    if in_byte != "\r":
+      out.write(in_byte)
+      in_line += in_byte
+    if in_byte == "\n" and pattern:
+      match = compiled_pattern.search(in_line[:-1])
+      if match:
+        capture_list.append(match.group(1))
+      in_line = ""
+    in_byte = kid.stdout.read(1)
   rv = kid.wait()
 
   if rv:
