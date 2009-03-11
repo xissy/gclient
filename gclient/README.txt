@@ -47,7 +47,8 @@ that contains the following items:
         the local working directory *not* check out and update specific
         components, or to sync the local working-directory copy of a
         given component to a different specific revision, or a branch,
-        or the head of a tree.
+        or the head of a tree. It can also be used to append new entries
+        that do not exist in the "DEPS" file.
 
 Within each checked-out solution, gclient expects to find a file
 named "DEPS" which defines the different component pieces of
