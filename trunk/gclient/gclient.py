@@ -1000,6 +1000,13 @@ class GClient(object):
       solution_deps = self._GetDefaultSolutionDeps(solution["name"],
                                                    custom_vars)
 
+      # If a line is in custom_deps, but not in the solution, we want to append
+      # this line to the solution.
+      if "custom_deps" in solution:
+        for d in solution["custom_deps"]:
+          if d not in solution_deps:
+            solution_deps[d] = solution["custom_deps"][d]
+
       for d in solution_deps:
         if "custom_deps" in solution and d in solution["custom_deps"]:
           # Dependency is overriden.

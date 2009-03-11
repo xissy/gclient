@@ -468,21 +468,23 @@ class GClientClassTestCase(GclientTestCase):
       "  'name': '%s',\n"
       "  'url': '%s',\n"
       "  'custom_deps': {\n"
-      "    'src/t': 'svn://custom.t/trunk',\n"
       "    'src/b': None,\n"
+      "    'src/n': 'svn://custom.n/trunk',\n"
+      "    'src/t': 'svn://custom.t/trunk',\n"
       "  }\n} ]\n"
     ) % (solution_name, self.url)
 
     deps = (
       "deps = {\n"
-      "  'src/t': 'svn://original.t/trunk',\n"
       "  'src/b': 'svn://original.b/trunk',\n"
+      "  'src/t': 'svn://original.t/trunk',\n"
       "}\n"
     )
 
     entries_content = (
       'entries = [\n'
       '  "%s",\n'
+      '  "src/n",\n'
       '  "src/t",\n'
       ']\n'
     ) % solution_name
@@ -490,6 +492,7 @@ class GClientClassTestCase(GclientTestCase):
     self.scm_wrapper = self.mox.CreateMockAnything()
     scm_wrapper_sol = self.mox.CreateMock(gclient.SCMWrapper)
     scm_wrapper_t = self.mox.CreateMock(gclient.SCMWrapper)
+    scm_wrapper_n = self.mox.CreateMock(gclient.SCMWrapper)
 
     options = self.Options()
 
@@ -507,11 +510,19 @@ class GClientClassTestCase(GclientTestCase):
                      solution_name,
                      options.deps_file)).AndReturn(deps)
 
+    # Next we expect an scm to be request for dep src/n even though it does not
+    # exist in the DEPS file.
+    options.scm_wrapper('svn://custom.n/trunk',
+                        self.root_dir,
+                        "src/n").AndReturn(scm_wrapper_n)
+
     # Next we expect an scm to be request for dep src/t but it should
     # use the url specified in custom_deps.
     options.scm_wrapper('svn://custom.t/trunk',
                         self.root_dir,
                         "src/t").AndReturn(scm_wrapper_t)
+
+    scm_wrapper_n.RunCommand('update', options, self.args, [])
     scm_wrapper_t.RunCommand('update', options, self.args, [])
 
     # NOTE: the dep src/b should not create an scm at all.
