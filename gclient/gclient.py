@@ -108,6 +108,7 @@ subcommands:
    sync
    update
    runhooks
+   revinfo
 
 Options and extra arguments can be passed to invoked svn commands by
 appending them to the command line.  Note that if the first such
@@ -230,6 +231,12 @@ Valid options:
   --force             : runs all known hooks, regardless of the working
                         copy status
   --verbose           : output additional diagnostics
+""",
+    "revinfo":
+    """Outputs source path, server URL and revision information for every
+dependency in all solutions (no local checkout required).
+
+usage: revinfo [options]
 """,
 }
 
@@ -551,6 +558,17 @@ def CaptureSVNInfo(options, relpath, in_directory):
   return result
 
 
+def CaptureSVNHeadRevision(options, url):
+  """Get the head revision of a SVN repository.
+
+  Returns:
+    Int head revision
+  """
+  info = CaptureSVN(options, ["info", "--xml", url], os.getcwd())
+  dom = xml.dom.minidom.parseString(info)
+  return int(dom.getElementsByTagName('entry')[0].getAttribute('revision'))
+
+
 class FileStatus:
   def __init__(self, path, text_status, props, locked, history, switched,
                repo_locked, out_of_date):
@@ -797,7 +815,7 @@ class SCMWrapper(object):
 class GClient(object):
   """Object that represent a gclient checkout."""
 
-  supported_commands = ['cleanup', 'diff', 'revert', 'status', 'update', 
+  supported_commands = ['cleanup', 'diff', 'revert', 'status', 'update',
       'runhooks']
 
   def __init__(self, root_dir, options):
@@ -905,29 +923,27 @@ class GClient(object):
         return self._local_scope["vars"][var_name]
       raise Error("Var is not defined: %s" % var_name)
 
-  def _GetDefaultSolutionDeps(self, solution_name, custom_vars):
-    """Fetches the DEPS file for the specified solution.
+  def _ParseSolutionDeps(self, solution_name, solution_deps_content,
+                         custom_vars):
+    """Parses the DEPS file for the specified solution.
 
     Args:
       solution_name: The name of the solution to query.
-      vars: A dict of vars to override any vars defined in the DEPS file.
+      solution_deps_content: Content of the DEPS file for the solution
+      custom_vars: A dict of vars to override any vars defined in the DEPS file.
 
     Returns:
       A dict mapping module names (as relative paths) to URLs or an empty
       dict if the solution does not have a DEPS file.
     """
-    deps_file = os.path.join(self._root_dir, solution_name,
-                             self._options.deps_file)
-
+    # Skip empty
+    if not solution_deps_content:
+      return {}
+    # Eval the content
     local_scope = {}
     var = self._VarImpl(custom_vars, local_scope)
     global_scope = {"From": self.FromImpl, "Var": var.Lookup, "deps_os": {}}
-    try:
-      exec(FileRead(deps_file), global_scope, local_scope)
-    except EnvironmentError:
-      print >> self._options.stdout, (
-          "\nWARNING: DEPS file not found for solution: %s\n" % solution_name)
-      return {}
+    exec(solution_deps_content, global_scope, local_scope)
     deps = local_scope.get("deps", {})
 
     # load os specific dependencies if defined.  these dependencies may
@@ -979,13 +995,15 @@ class GClient(object):
     else:
       return deps
 
-  def _GetAllDeps(self, solution_urls):
-    """Get the complete list of dependencies for the client.
+  def _ParseAllDeps(self, solution_urls, solution_deps_content):
+    """Parse the complete list of dependencies for the client.
 
     Args:
       solution_urls: A dict mapping module names (as relative paths) to URLs
         corresponding to the solutions specified by the client.  This parameter
         is passed as an optimization.
+      solution_deps_content: A dict mapping module names to the content
+        of their DEPS files
 
     Returns:
       A dict mapping module names (as relative paths) to URLs corresponding
@@ -997,8 +1015,10 @@ class GClient(object):
     deps = {}
     for solution in self.GetVar("solutions"):
       custom_vars = solution.get("custom_vars", {})
-      solution_deps = self._GetDefaultSolutionDeps(solution["name"],
-                                                   custom_vars)
+      solution_deps = self._ParseSolutionDeps(
+                              solution["name"],
+                              solution_deps_content[solution["name"]],
+                              custom_vars)
 
       # If a line is in custom_deps, but not in the solution, we want to append
       # this line to the solution.
@@ -1117,8 +1137,12 @@ class GClient(object):
       if revision.find("@") == -1:
         raise Error(
             "Specify the full dependency when specifying a revision number.")
-      # Check if we want to update this solution.
       revision_elem = revision.split("@")
+      # Disallow conflicting revs
+      if revision_overrides.has_key(revision_elem[0]) and \
+         revision_overrides[revision_elem[0]] != revision_elem[1]:
+        raise Error(
+            "Conflicting revision numbers specified.")
       revision_overrides[revision_elem[0]] = revision_elem[1]
 
     solutions = self.GetVar("solutions")
@@ -1131,6 +1155,7 @@ class GClient(object):
     run_scm = not (command == 'runhooks' and self._options.force)
 
     entries = {}
+    entries_deps_content = {}
     file_list = []
     # Run on the base solutions first.
     for solution in solutions:
@@ -1139,14 +1164,19 @@ class GClient(object):
         raise Error("solution %s specified more than once" % name)
       url = solution["url"]
       entries[name] = url
-      self._options.revision = revision_overrides.get(name)
       if run_scm:
+        self._options.revision = revision_overrides.get(name)
         scm = self._options.scm_wrapper(url, self._root_dir, name)
         scm.RunCommand(command, self._options, args, file_list)
+        self._options.revision = None
+      entries_deps_content[name] = FileRead(
+                                     os.path.join(self._root_dir, name,
+                                                  self._options.deps_file))
+
 
     # Process the dependencies next (sort alphanumerically to ensure that
     # containing directories get populated first and for readability)
-    deps = self._GetAllDeps(entries)
+    deps = self._ParseAllDeps(entries, entries_deps_content)
     deps_to_process = deps.keys()
     deps_to_process.sort()
 
@@ -1155,21 +1185,28 @@ class GClient(object):
       if type(deps[d]) == str:
         url = deps[d]
         entries[d] = url
-        self._options.revision = revision_overrides.get(d)
         if run_scm:
+          self._options.revision = revision_overrides.get(d)
           scm = self._options.scm_wrapper(url, self._root_dir, d)
           scm.RunCommand(command, self._options, args, file_list)
+          self._options.revision = None
 
     # Second pass for inherited deps (via the From keyword)
     for d in deps_to_process:
       if type(deps[d]) != str:
-        sub_deps = self._GetDefaultSolutionDeps(deps[d].module_name)
+        sub_deps = self._ParseSolutionDeps(
+                           deps[d].module_name,
+                           FileRead(os.path.join(self._root_dir,
+                                                 deps[d].module_name,
+                                                 self._options.deps_file)),
+                           {})
         url = sub_deps[d]
         entries[d] = url
-        self._options.revision = revision_overrides.get(d)
         if run_scm:
+          self._options.revision = revision_overrides.get(d)
           scm = self._options.scm_wrapper(url, self._root_dir, d)
           scm.RunCommand(command, self._options, args, file_list)
+          self._options.revision = None
 
     self._RunHooks(command, file_list)
 
@@ -1194,6 +1231,113 @@ class GClient(object):
             RemoveDirectory(e_dir)
       # record the current list of entries for next time
       self._SaveEntries(entries)
+
+  def PrintRevInfo(self):
+    """Output revision info mapping for the client and its dependencies. This
+    allows the capture of a overall "revision" for the source tree that can
+    be used to reproduce the same tree in the future. The actual output
+    contains enough information (source paths, svn server urls and revisions)
+    that it can be used either to generate external svn commands (without
+    gclient) or as input to gclient's --rev option (with some massaging of
+    the data).
+
+    NOTE: Unlike RunOnDeps this does not require a local checkout and is run
+    on the Pulse master. It MUST NOT execute hooks.
+
+    Raises:
+      Error: If the client has conflicting entries.
+    """
+    # Check for revision overrides.
+    revision_overrides = {}
+    for revision in self._options.revisions:
+      if revision.find("@") < 0:
+        raise Error(
+            "Specify the full dependency when specifying a revision number.")
+      revision_elem = revision.split("@")
+      # Disallow conflicting revs
+      if revision_overrides.has_key(revision_elem[0]) and \
+         revision_overrides[revision_elem[0]] != revision_elem[1]:
+        raise Error(
+            "Conflicting revision numbers specified.")
+      revision_overrides[revision_elem[0]] = revision_elem[1]
+
+    solutions = self.GetVar("solutions")
+    if not solutions:
+      raise Error("No solution specified")
+
+    entries = {}
+    entries_deps_content = {}
+
+    # Inner helper to generate base url and rev tuple (including honoring
+    # |revision_overrides|)
+    def GetURLAndRev(name, original_url):
+      if original_url.find("@") < 0:
+        if revision_overrides.has_key(name):
+          return (original_url, int(revision_overrides[name]))
+        else:
+          # TODO(aharper): SVN/SCMWrapper cleanup (non-local commandset)
+          return (original_url, CaptureSVNHeadRevision(self._options,
+                                                       original_url))
+      else:
+        url_components = original_url.split("@")
+        if revision_overrides.has_key(name):
+          return (url_components[0], int(revision_overrides[name]))
+        else:
+          return (url_components[0], int(url_components[1]))
+
+    # Run on the base solutions first.
+    for solution in solutions:
+      name = solution["name"]
+      if name in entries:
+        raise Error("solution %s specified more than once" % name)
+      (url, rev) = GetURLAndRev(name, solution["url"])
+      entries[name] = "%s@%d" % (url, rev)
+      # TODO(aharper): SVN/SCMWrapper cleanup (non-local commandset)
+      entries_deps_content[name] = CaptureSVN(
+                                     self._options,
+                                     ["cat",
+                                      "%s/%s@%d" % (url,
+                                                    self._options.deps_file,
+                                                    rev)],
+                                     os.getcwd())
+
+    # Process the dependencies next (sort alphanumerically to ensure that
+    # containing directories get populated first and for readability)
+    deps = self._ParseAllDeps(entries, entries_deps_content)
+    deps_to_process = deps.keys()
+    deps_to_process.sort()
+
+    # First pass for direct dependencies.
+    for d in deps_to_process:
+      if type(deps[d]) == str:
+        (url, rev) = GetURLAndRev(d, deps[d])
+        entries[d] = "%s@%d" % (url, rev)
+
+    # Second pass for inherited deps (via the From keyword)
+    for d in deps_to_process:
+      if type(deps[d]) != str:
+        deps_parent_url = entries[deps[d].module_name]
+        if deps_parent_url.find("@") < 0:
+          raise Error("From %s missing revisioned url" % deps[d].module_name)
+        deps_parent_url_components = deps_parent_url.split("@")
+        # TODO(aharper): SVN/SCMWrapper cleanup (non-local commandset)
+        deps_parent_content = CaptureSVN(
+                                self._options,
+                                ["cat",
+                                 "%s/%s@%s" % (deps_parent_url_components[0],
+                                               self._options.deps_file,
+                                               deps_parent_url_components[1])],
+                                os.getcwd())
+        sub_deps = self._ParseSolutionDeps(
+                           deps[d].module_name,
+                           FileRead(os.path.join(self._root_dir,
+                                                 deps[d].module_name,
+                                                 self._options.deps_file)),
+                           {})
+        (url, rev) = GetURLAndRev(d, sub_deps[d])
+        entries[d] = "%s@%d" % (url, rev)
+
+    print ";".join(["%s,%s" % (x, entries[x]) for x in sorted(entries.keys())])
 
 
 ## gclient commands.
@@ -1334,6 +1478,18 @@ def DoRunHooks(options, args):
   return client.RunOnDeps('runhooks', args)
 
 
+def DoRevInfo(options, args):
+  """Handle the revinfo subcommand.
+
+  Raises:
+    Error: if client isn't configured properly.
+  """
+  client = options.gclient.LoadCurrentConfig(options)
+  if not client:
+    raise Error("client not configured; see 'gclient config'")
+  client.PrintRevInfo()
+
+
 gclient_command_map = {
     "cleanup": DoCleanup,
     "config": DoConfig,
@@ -1344,6 +1500,7 @@ gclient_command_map = {
     "update": DoUpdate,
     "revert": DoRevert,
     "runhooks": DoRunHooks,
+    "revinfo" : DoRevInfo,
     }
 
 
