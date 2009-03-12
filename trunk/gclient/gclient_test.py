@@ -160,9 +160,9 @@ class GclientTestCase(BaseTestCase):
 
 class GClientCommandsTestCase(BaseTestCase):
   def testCommands(self):
-    known_commands = [gclient.DoCleanup, gclient.DoConfig, gclient.DoDiff, 
-                      gclient.DoHelp, gclient.DoStatus, gclient.DoUpdate, 
-                      gclient.DoRevert, gclient.DoRunHooks]
+    known_commands = [gclient.DoCleanup, gclient.DoConfig, gclient.DoDiff,
+                      gclient.DoHelp, gclient.DoStatus, gclient.DoUpdate,
+                      gclient.DoRevert, gclient.DoRunHooks, gclient.DoRevInfo]
     for (k,v) in gclient.gclient_command_map.iteritems():
       # If it fails, you need to add a test case for the new command.
       self.assert_(v in known_commands)
@@ -295,7 +295,7 @@ class TestDoStatus(GenericCommandTestCase):
 class TestDoRunHooks(GenericCommandTestCase):
   def Options(self, verbose=False, *args, **kwargs):
     return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
-  
+
   def testGoodClient(self):
     self.ReturnValue('runhooks', gclient.DoRunHooks, 0)
   def testError(self):
@@ -345,14 +345,14 @@ class TestDoRevert(GenericCommandTestCase):
 
 class GClientClassTestCase(GclientTestCase):
   def testDir(self):
-    members = ['ConfigContent', 'FromImpl', '_VarImpl', '_GetAllDeps',
-      '_GetDefaultSolutionDeps', 'GetVar', '_LoadConfig', 'LoadCurrentConfig',
+    members = ['ConfigContent', 'FromImpl', '_VarImpl', '_ParseAllDeps',
+      '_ParseSolutionDeps', 'GetVar', '_LoadConfig', 'LoadCurrentConfig',
       '_ReadEntries', '_RunHookAction', '_RunHooks', 'RunOnDeps', 'SaveConfig',
       '_SaveEntries', 'SetConfig', 'SetDefaultConfig', '__class__',
       '__delattr__', '__dict__', '__doc__', '__getattribute__', '__hash__',
       '__init__', '__module__', '__new__', '__reduce__', '__reduce_ex__',
       '__repr__', '__setattr__', '__str__', '__weakref__',
-      'supported_commands']
+      'supported_commands', 'PrintRevInfo']
 
     # If you add a member, be sure to add the relevant test!
     self.assertEqual(sorted(dir(gclient.GClient)), sorted(members))
@@ -712,7 +712,7 @@ deps_os = {
 
     options.path_exists(os.path.join(self.root_dir, options.entries_filename)
         ).AndReturn(False)
-    
+
     options.scm_wrapper(self.url, self.root_dir, 'src').AndReturn(
         scm_wrapper_src)
     scm_wrapper_src.RunCommand('update', mox.Func(OptIsRev123), self.args, [])
@@ -755,6 +755,33 @@ deps_os = {
     client.RunOnDeps('update', self.args)
     self.mox.VerifyAll()
 
+  def testRunOnDepsConflictingRevisions(self):
+    # Fake .gclient file.
+    name = 'testRunOnDepsConflictingRevisions_solution_name'
+    gclient_config = """solutions = [ {
+  'name': '%s',
+  'url': '%s',
+  'custom_deps': {},
+  'custom_vars': {},
+}, ]""" % (name, self.url)
+    # Fake DEPS file.
+    deps_content = """deps = {
+  'foo/third_party/WebKit': '/trunk/deps/third_party/WebKit',
+}"""
+
+    options = self.Options()
+    options.revisions = [ 'foo/third_party/WebKit@42',
+                          'foo/third_party/WebKit@43' ]
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    exception = "Conflicting revision numbers specified."
+    try:
+      client.RunOnDeps('update', self.args)
+    except gclient.Error, e:
+      self.assertEquals(e.message, exception)
+    else:
+      self.fail('%s not raised' % exception)
+
   def testRunOnDepsSuccessVars(self):
     # Fake .gclient file.
     name = 'testRunOnDepsSuccessVars_solution_name'
@@ -781,7 +808,7 @@ deps = {
     self.scm_wrapper = self.mox.CreateMockAnything()
     scm_wrapper_webkit = self.mox.CreateMock(gclient.SCMWrapper)
     scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
- 
+
     options = self.Options()
     gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
         ).AndReturn(deps_content)
@@ -802,7 +829,7 @@ deps = {
     options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
     options.scm_wrapper.RunCommand('update', options, self.args, [])
-    
+
     self.mox.ReplayAll()
     client = gclient.GClient(self.root_dir, options)
     client.SetConfig(gclient_config)
@@ -835,7 +862,7 @@ deps = {
     self.scm_wrapper = self.mox.CreateMockAnything()
     scm_wrapper_webkit = self.mox.CreateMock(gclient.SCMWrapper)
     scm_wrapper_src = self.mox.CreateMock(gclient.SCMWrapper)
- 
+
     options = self.Options()
     gclient.FileRead(os.path.join(self.root_dir, name, options.deps_file)
         ).AndReturn(deps_content)
@@ -856,7 +883,7 @@ deps = {
     options.scm_wrapper(webkit_path, self.root_dir,
                         'foo/third_party/WebKit').AndReturn(options.scm_wrapper)
     options.scm_wrapper.RunCommand('update', options, self.args, [])
-    
+
     self.mox.ReplayAll()
     client = gclient.GClient(self.root_dir, options)
     client.SetConfig(gclient_config)
@@ -927,6 +954,11 @@ deps = {
     # TODO(maruel):  Test me!
     pass
 
+  def test_PrintRevInfo(self):
+    # TODO(aharper): no test yet for revinfo, lock it down once we've verified
+    # implementation for Pulse plugin
+    pass
+
   # No test for internal functions.
   def test_GetAllDeps(self):
     pass
@@ -940,6 +972,7 @@ deps = {
     pass
   def test_VarImpl(self):
     pass
+
 
 class SCMWrapperTestCase(BaseTestCase):
   class OptionsObject(object):
