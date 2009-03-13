@@ -388,20 +388,19 @@ def RemoveDirectory(*path):
     os.rmdir(file_path)
 
 
-def SubprocessCall(command, in_directory, out):
+def SubprocessCall(command, in_directory, out, fail_status=None):
   """Runs command, a list, in directory in_directory.
 
-  A message indicating what is being done is printed to out.  Command output
-  is sent to stdout.
-
-  Raises an Error exception if command fails.
+  This function wraps SubprocessCallAndCapture, but does not perform the
+  capturing functions.  See that function for a more complete usage
+  description.
   """
   # Call subprocess and capture nothing:
-  SubprocessCallAndCapture(command, in_directory, out)
+  SubprocessCallAndCapture(command, in_directory, out, fail_status)
 
 
-def SubprocessCallAndCapture(command, in_directory, out, pattern = None,
-                             capture_list = None):
+def SubprocessCallAndCapture(command, in_directory, out, fail_status=None,
+                             pattern=None, capture_list=None):
   """Runs command, a list, in directory in_directory.
 
   A message indicating what is being done, as well as the command's stdout,
@@ -410,7 +409,9 @@ def SubprocessCallAndCapture(command, in_directory, out, pattern = None,
   If a pattern is specified, any line in the output matching pattern will have
   its first match group appended to capture_list.
 
-  Raises an Error exception if command fails.
+  If the command fails, as indicated by a nonzero exit status, gclient will
+  exit with an exit status of fail_status.  If fail_status is None (the
+  default), gclient will raise an Error exception.
   """
 
   print >> out, ("\n________ running \'%s\' in \'%s\'"
@@ -444,7 +445,13 @@ def SubprocessCallAndCapture(command, in_directory, out, pattern = None,
   rv = kid.wait()
 
   if rv:
-    raise Error("failed to run command: %s" % " ".join(command))
+    msg = "failed to run command: %s" % " ".join(command)
+
+    if fail_status != None:
+      print >>sys.stderr, msg
+      sys.exit(fail_status)
+
+    raise Error(msg)
 
 
 # -----------------------------------------------------------------------------
@@ -529,7 +536,7 @@ def RunSVNAndGetFileList(options, args, in_directory, file_list):
       }[args[0]]
 
   SubprocessCallAndCapture(command, in_directory, options.stdout,
-                           pattern, file_list)
+                           pattern=pattern, capture_list=file_list)
 
 
 def CaptureSVNInfo(options, relpath, in_directory):
@@ -1081,7 +1088,11 @@ class GClient(object):
       # interpreter.
       command[0] = sys.executable
 
-    SubprocessCall(command, self._root_dir, self._options.stdout)
+    # Use a discrete exit status code of 2 to indicate that a hook action
+    # failed.  Users of this script may wish to treat hook action failures
+    # differently from VC failures.
+    SubprocessCall(command, self._root_dir, self._options.stdout,
+                   fail_status=2)
 
   def _RunHooks(self, command, file_list):
     """Evaluates all hooks, running actions as needed.
