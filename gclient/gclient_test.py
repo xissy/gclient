@@ -72,7 +72,7 @@ class BaseTestCase(unittest.TestCase):
     try:
       fn(*args, **kwargs)
     except gclient.Error, e:
-      self.assertEquals(e.message, msg)
+      self.assertEquals(e.args[0], msg)
     else:
       self.fail('%s not raised' % msg)
 
@@ -348,14 +348,13 @@ class GClientClassTestCase(GclientTestCase):
     members = ['ConfigContent', 'FromImpl', '_VarImpl', '_ParseAllDeps',
       '_ParseSolutionDeps', 'GetVar', '_LoadConfig', 'LoadCurrentConfig',
       '_ReadEntries', '_RunHookAction', '_RunHooks', 'RunOnDeps', 'SaveConfig',
-      '_SaveEntries', 'SetConfig', 'SetDefaultConfig', '__class__',
-      '__delattr__', '__dict__', '__doc__', '__getattribute__', '__hash__',
-      '__init__', '__module__', '__new__', '__reduce__', '__reduce_ex__',
-      '__repr__', '__setattr__', '__str__', '__weakref__',
-      'supported_commands', 'PrintRevInfo']
+      '_SaveEntries', 'SetConfig', 'SetDefaultConfig', 'supported_commands',
+      'PrintRevInfo']
 
     # If you add a member, be sure to add the relevant test!
-    self.assertEqual(sorted(dir(gclient.GClient)), sorted(members))
+    actual_members = [x for x in sorted(dir(gclient.GClient))
+                      if not x.startswith('__')]
+    self.assertEqual(actual_members, sorted(members))
     self.mox.ReplayAll()
     self.mox.VerifyAll()
 
@@ -778,7 +777,7 @@ deps_os = {
     try:
       client.RunOnDeps('update', self.args)
     except gclient.Error, e:
-      self.assertEquals(e.message, exception)
+      self.assertEquals(e.args[0], exception)
     else:
       self.fail('%s not raised' % exception)
 
@@ -926,7 +925,7 @@ deps = {
     try:
       client.RunOnDeps('update', self.args)
     except gclient.Error, e:
-      self.assertEquals(e.message, exception)
+      self.assertEquals(e.args[0], exception)
     else:
       self.fail('%s not raised' % exception)
 
@@ -998,14 +997,13 @@ class SCMWrapperTestCase(BaseTestCase):
     self.path_exists = self.mox.CreateMockAnything()
 
   def testDir(self):
-    members = ['FullUrlForRelativeUrl', 'RunCommand', '__class__',
-      '__delattr__', '__dict__', '__doc__', '__getattribute__',
-      '__hash__', '__init__', '__module__', '__new__', '__reduce__',
-      '__reduce_ex__', '__repr__', '__setattr__', '__str__', '__weakref__',
+    members = ['FullUrlForRelativeUrl', 'RunCommand',
       'cleanup', 'diff', 'revert', 'status', 'update']
 
     # If you add a member, be sure to add the relevant test!
-    self.assertEqual(sorted(dir(gclient.SCMWrapper)), sorted(members))
+    actual_members = [x for x in sorted(dir(gclient.SCMWrapper))
+                      if not x.startswith('__')]
+    self.assertEqual(actual_members, sorted(members))
     self.mox.ReplayAll()
     self.mox.VerifyAll()
 

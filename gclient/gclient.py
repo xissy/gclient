@@ -268,13 +268,7 @@ solutions = [
 
 class Error(Exception):
   """gclient exception class."""
-
-  def __init__(self, message):
-    Exception.__init__(self)
-    self.message = message
-  def __str__(self):
-    return 'Error: %s' % self.message
-
+  pass
 
 class PrintableObject(object):
   def __str__(self):
@@ -1594,6 +1588,6 @@ if "__main__" == __name__:
   try:
     result = Main(sys.argv)
   except Error, e:
-    print "Error: %s" % e.message
+    print "Error: %s" % str(e)
     result = 1
   sys.exit(result)
