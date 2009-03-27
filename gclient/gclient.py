@@ -414,15 +414,15 @@ def SubprocessCallAndCapture(command, in_directory, out, fail_status=None,
   # *Sigh*:  Windows needs shell=True, or else it won't search %PATH% for the
   # executable, but shell=True makes subprocess on Linux fail when it's called
   # with a list because it only tries to execute the first item in the list.
-  kid = subprocess.Popen(command, bufsize=0, cwd=in_directory, 
+  kid = subprocess.Popen(command, bufsize=0, cwd=in_directory,
       shell=(sys.platform == 'win32'), stdout=subprocess.PIPE)
 
   if pattern:
     compiled_pattern = re.compile(pattern)
 
-  # Also, we need to forward stdout to prevent weird re-ordering of output. 
-  # This has to be done on a per byte basis to make sure it is not buffered: 
-  # normally buffering is done for each line, but if svn requests input, no 
+  # Also, we need to forward stdout to prevent weird re-ordering of output.
+  # This has to be done on a per byte basis to make sure it is not buffered:
+  # normally buffering is done for each line, but if svn requests input, no
   # end-of-line character is output after the prompt and it would not show up.
   in_byte = kid.stdout.read(1)
   in_line = ""
