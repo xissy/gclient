@@ -397,6 +397,52 @@ class GClientClassTestCase(GclientTestCase):
     client = gclient.GClient.LoadCurrentConfig(options, self.root_dir)
     self.mox.VerifyAll()
 
+  def testRunOnDepsNoDeps(self):
+    solution_name = 'testRunOnDepsNoDeps_solution_name'
+    gclient_config = (
+      "solutions = [ {\n"
+      "  'name': '%s',\n"
+      "  'url': '%s',\n"
+      "  'custom_deps': {},\n"
+      "} ]\n"
+    ) % (solution_name, self.url)
+
+    entries_content = (
+      'entries = [\n'
+      '  "%s",\n'
+      ']\n'
+    ) % solution_name
+
+    self.scm_wrapper = self.mox.CreateMockAnything()
+    scm_wrapper_sol = self.mox.CreateMock(gclient.SCMWrapper)
+
+    options = self.Options()
+
+    # Expect a check for the entries file and we say there is not one.
+    options.path_exists(os.path.join(self.root_dir, options.entries_filename)
+        ).AndReturn(False)
+
+    # An scm will be requested for the solution.
+    options.scm_wrapper(self.url, self.root_dir, solution_name
+        ).AndReturn(scm_wrapper_sol)
+    # Then an update will be performed.
+    scm_wrapper_sol.RunCommand('update', options, self.args, [])
+    # Then an attempt will be made to read its DEPS file.
+    gclient.FileRead(os.path.join(self.root_dir,
+                     solution_name,
+                     options.deps_file)).AndRaise(IOError(2, 'No DEPS file'))
+
+    # After everything is done, an attempt is made to write an entries
+    # file.
+    gclient.FileWrite(os.path.join(self.root_dir, options.entries_filename),
+        entries_content)
+
+    self.mox.ReplayAll()
+    client = gclient.GClient(self.root_dir, options)
+    client.SetConfig(gclient_config)
+    client.RunOnDeps('update', self.args)
+    self.mox.VerifyAll()
+
   def testRunOnDepsRelativePaths(self):
     solution_name = 'testRunOnDepsRelativePaths_solution_name'
     gclient_config = (
