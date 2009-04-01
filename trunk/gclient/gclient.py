@@ -1174,10 +1174,14 @@ class GClient(object):
         scm = self._options.scm_wrapper(url, self._root_dir, name)
         scm.RunCommand(command, self._options, args, file_list)
         self._options.revision = None
-      entries_deps_content[name] = FileRead(
-                                     os.path.join(self._root_dir, name,
-                                                  self._options.deps_file))
-
+      try:
+        deps_content = FileRead(os.path.join(self._root_dir, name,
+                                             self._options.deps_file))
+      except IOError, e:
+        if e.errno != errno.ENOENT:
+          raise
+        deps_content = ""
+      entries_deps_content[name] = deps_content
 
     # Process the dependencies next (sort alphanumerically to ensure that
     # containing directories get populated first and for readability)
