@@ -448,6 +448,14 @@ def SubprocessCallAndCapture(command, in_directory, out, fail_status=None,
     raise Error(msg)
 
 
+def IsUsingGit(root, paths):
+  """Returns True if we're using git to manage any of our checkouts.
+  |entries| is a list of paths to check."""
+  for path in paths:
+    if os.path.exists(os.path.join(root, path, '.git')):
+      return True
+  return False
+
 # -----------------------------------------------------------------------------
 # SVN utils:
 
@@ -1088,7 +1096,7 @@ class GClient(object):
     SubprocessCall(command, self._root_dir, self._options.stdout,
                    fail_status=2)
 
-  def _RunHooks(self, command, file_list):
+  def _RunHooks(self, command, file_list, is_using_git):
     """Evaluates all hooks, running actions as needed.
     """
     # Hooks only run for these command types.
@@ -1101,8 +1109,9 @@ class GClient(object):
     hooks.extend(self._deps_hooks)
 
     # If "--force" was specified, run all hooks regardless of what files have
-    # changed.
-    if self._options.force:
+    # changed.  If the user is using git, then we don't know what files have
+    # changed so we always run all hooks.
+    if self._options.force or is_using_git:
       for hook_dict in hooks:
         self._RunHookAction(hook_dict)
       return
@@ -1217,7 +1226,8 @@ class GClient(object):
           scm.RunCommand(command, self._options, args, file_list)
           self._options.revision = None
 
-    self._RunHooks(command, file_list)
+    is_using_git = IsUsingGit(self._root_dir, entries.keys())
+    self._RunHooks(command, file_list, is_using_git)
 
     if command == 'update':
       # notify the user if there is an orphaned entry in their working copy.
