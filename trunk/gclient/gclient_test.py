@@ -133,6 +133,7 @@ class GclientTestCase(BaseTestCase):
       self.revisions = []
       self.manually_grab_svn_rev = True
       self.deps_os = None
+      self.head = False
 
       # Mox
       self.stdout = test_case.stdout
@@ -207,7 +208,8 @@ class TestDoConfig(GclientTestCase):
     options = self.Options()
     options.path_exists(options.config_filename).AndReturn(False)
     options.gclient('.', options).AndReturn(options.gclient)
-    options.gclient.SetDefaultConfig('the_name', 'http://svn/url/the_name')
+    options.gclient.SetDefaultConfig('the_name', 'http://svn/url/the_name',
+                                     'other')
     options.gclient.SaveConfig()
 
     self.mox.ReplayAll()
@@ -308,6 +310,34 @@ class TestDoUpdate(GenericCommandTestCase):
   def Options(self, verbose=False, *args, **kwargs):
     return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
 
+  def ReturnValue(self, command, function, return_value):
+    options = self.Options()
+    self.gclient.LoadCurrentConfig(options).AndReturn(self.gclient)
+    self.gclient.GetVar("solutions")
+    self.gclient.RunOnDeps(command, self.args).AndReturn(return_value)
+
+    self.mox.ReplayAll()
+    result = function(options, self.args)
+    self.assertEquals(result, return_value)
+    self.mox.VerifyAll()
+
+  def Verbose(self, command, function):
+    options = self.Options(verbose=True)
+    self.gclient.LoadCurrentConfig(options).AndReturn(self.gclient)
+    self.gclient.GetVar("solutions")
+    text = "# Dummy content\nclient = 'my client'"
+    self.gclient.ConfigContent().AndReturn(text)
+    print >>self.stdout, text
+    self.gclient.RunOnDeps(command, self.args).AndReturn(0)
+
+    self.mox.ReplayAll()
+    result = function(options, self.args)
+    self.assertEquals(result, 0)
+    self.mox.VerifyAll()
+
+  def Options(self, verbose=False, *args, **kwargs):
+    return self.OptionsObject(self, verbose=verbose, *args, **kwargs)
+
   def testBasic(self):
     self.ReturnValue('update', gclient.DoUpdate, 0)
   def testError(self):
@@ -341,8 +371,6 @@ class TestDoRevert(GenericCommandTestCase):
     self.BadClient(gclient.DoRevert)
 
 
-
-
 class GClientClassTestCase(GclientTestCase):
   def testDir(self):
     members = ['ConfigContent', 'FromImpl', '_VarImpl', '_ParseAllDeps',
@@ -374,11 +402,18 @@ class GClientClassTestCase(GclientTestCase):
 
     solution_name = 'solution name'
     solution_url = 'solution url'
+    safesync_url = 'safesync url'
     default_text = gclient.DEFAULT_CLIENT_FILE_TEXT % (solution_name,
-                                                       solution_url)
-    client.SetDefaultConfig(solution_name, solution_url)
+                                                       solution_url,
+                                                       safesync_url)
+    client.SetDefaultConfig(solution_name, solution_url, safesync_url)
     self.assertEqual(client.ConfigContent(), default_text)
-    solutions = [{'name':solution_name, 'url':solution_url, 'custom_deps':{}}]
+    solutions = [{
+      'name': solution_name,
+      'url': solution_url,
+      'custom_deps': {},
+      'safesync_url': safesync_url
+    }]
     self.assertEqual(client.GetVar('solutions'), solutions)
     self.assertEqual(client.GetVar('foo'), None)
     self.mox.VerifyAll()
@@ -1257,3 +1292,5 @@ class SCMWrapperTestCase(BaseTestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+# vim: ts=2:sw=2:tw=80:et:

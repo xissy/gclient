@@ -76,6 +76,7 @@ import sys
 import time
 import urlparse
 import xml.dom.minidom
+import urllib
 
 def getText(nodelist):
   """
@@ -167,7 +168,7 @@ modules to operate on as well.  If optional [url] parameter is
 provided, then configuration is read from a specified Subversion server
 URL.  Otherwise, a --spec option must be provided.
 
-usage: config [option | url]
+usage: config [option | url] [safesync url]
 
 Valid options:
   --spec=GCLIENT_SPEC   : contents of .gclient are read from string parameter.
@@ -240,7 +241,7 @@ usage: revinfo [options]
 """,
 }
 
-# parameterized by (solution_name, solution_url)
+# parameterized by (solution_name, solution_url, safesync_url)
 DEFAULT_CLIENT_FILE_TEXT = (
     """
 # An element of this array (a \"solution\") describes a repository directory
@@ -249,6 +250,9 @@ DEFAULT_CLIENT_FILE_TEXT = (
 # checked out alongside the solution's directory.  A solution may also
 # specify custom dependencies (via the \"custom_deps\" property) that
 # override or augment the dependencies specified by the DEPS file.
+# If a \"safesync_url\" is specified, it is assumed to reference the location of
+# a text file which contains nothing but the last known good SCM revision to
+# sync against. It is fetched if specified and used unless --head is passed
 solutions = [
   { \"name\"        : \"%s\",
     \"url\"         : \"%s\",
@@ -257,7 +261,8 @@ solutions = [
       #\"component\": \"https://svnserver/component/trunk/\",
       # To exclude a component from your working copy:
       #\"data/really_large_component\": None,
-    }
+    },
+    \"safesync_url\": \"%s\"
   }
 ]
 """)
@@ -824,9 +829,10 @@ class SCMWrapper(object):
 class GClient(object):
   """Object that represent a gclient checkout."""
 
-  supported_commands = ['cleanup', 'diff', 'revert', 'status', 'update',
-      'runhooks']
-
+  supported_commands = [
+    'cleanup', 'diff', 'revert', 'status', 'update', 'runhooks'
+  ]
+  
   def __init__(self, root_dir, options):
     self._root_dir = root_dir
     self._options = options
@@ -875,8 +881,10 @@ class GClient(object):
     client._LoadConfig()
     return client
 
-  def SetDefaultConfig(self, solution_name, solution_url):
-    self.SetConfig(DEFAULT_CLIENT_FILE_TEXT % (solution_name, solution_url))
+  def SetDefaultConfig(self, solution_name, solution_url, safesync_url):
+    self.SetConfig(DEFAULT_CLIENT_FILE_TEXT % (
+      solution_name, solution_url, safesync_url
+    ))
 
   def _SaveEntries(self, entries):
     """Creates a .gclient_entries file to record the list of unique checkouts.
@@ -1131,7 +1139,7 @@ class GClient(object):
         break
 
   def RunOnDeps(self, command, args):
-    """Runs an command on each dependency in a client and its dependencies.
+    """Runs a command on each dependency in a client and its dependencies.
 
     The module's dependencies are specified in its top-level DEPS files.
 
@@ -1403,7 +1411,10 @@ def DoConfig(options, args):
     # for the given URL.
     base_url = args[0]
     name = args[0].split("/")[-1]
-    client.SetDefaultConfig(name, base_url)
+    safesync_url = ""
+    if len(args) > 1:
+      safesync_url = args[1]
+    client.SetDefaultConfig(name, base_url, safesync_url)
   client.SaveConfig()
 
 
@@ -1443,8 +1454,30 @@ def DoUpdate(options, args):
     Error: if client isn't configured properly.
   """
   client = options.gclient.LoadCurrentConfig(options)
+
   if not client:
     raise Error("client not configured; see 'gclient config'")
+
+  if not options.head:
+    solutions = client.GetVar('solutions')
+    if solutions:
+      for s in solutions:
+        if s.get('safesync_url', ''):
+          # rip through revisions and make sure we're not over-riding
+          # something that was explicitly passed
+          has_key = False
+          for r in options.revisions:
+            if r.split('@')[0] == s['name']:
+              has_key = True
+              break
+
+          if not has_key:
+            handle = urllib.urlopen(s['safesync_url'])
+            rev = handle.read().strip()
+            handle.close()
+            if len(rev):
+              options.revisions.append(s['name']+'@'+rev)
+
   if options.verbose:
     # Print out the .gclient file.  This is longer than if we just printed the
     # client dict, but more legible, and it might contain helpful comments.
@@ -1510,17 +1543,17 @@ def DoRevInfo(options, args):
 
 
 gclient_command_map = {
-    "cleanup": DoCleanup,
-    "config": DoConfig,
-    "diff": DoDiff,
-    "help": DoHelp,
-    "status": DoStatus,
-    "sync": DoUpdate,
-    "update": DoUpdate,
-    "revert": DoRevert,
-    "runhooks": DoRunHooks,
-    "revinfo" : DoRevInfo,
-    }
+  "cleanup": DoCleanup,
+  "config": DoConfig,
+  "diff": DoDiff,
+  "help": DoHelp,
+  "status": DoStatus,
+  "sync": DoUpdate,
+  "update": DoUpdate,
+  "revert": DoRevert,
+  "runhooks": DoRunHooks,
+  "revinfo" : DoRevInfo,
+}
 
 
 def DispatchCommand(command, options, args, command_map=None):
@@ -1562,7 +1595,10 @@ def Main(argv):
   option_parser.add_option("", "--manually_grab_svn_rev", action="store_true",
                            default=False,
                            help="Skip svn up whenever possible by requesting "
-                           "actual HEAD revision from the repository")
+                                "actual HEAD revision from the repository")
+  option_parser.add_option("", "--head", action="store_true", default=False,
+                           help=("skips any safesync_urls specified in "
+                                 "configured solutions"))
 
   if len(argv) < 2:
     # Users don't need to be told to use the 'help' command.
@@ -1605,3 +1641,5 @@ if "__main__" == __name__:
     print "Error: %s" % str(e)
     result = 1
   sys.exit(result)
+
+# vim: ts=2:sw=2:tw=80:et:
