@@ -832,7 +832,7 @@ class GClient(object):
   supported_commands = [
     'cleanup', 'diff', 'revert', 'status', 'update', 'runhooks'
   ]
-  
+
   def __init__(self, root_dir, options):
     self._root_dir = root_dir
     self._options = options
