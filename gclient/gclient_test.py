@@ -53,17 +53,18 @@ def Args(max_arg_count=8, max_arg_length=16):
 
 
 def _DirElts(max_elt_count=4, max_elt_length=8):
-  return '/'.join(Strings(max_elt_count, max_elt_length))
+  return os.sep.join(Strings(max_elt_count, max_elt_length))
 
 
 def Dir(max_elt_count=4, max_elt_length=8):
-  return random.choice(('/', '')) + _DirElts(max_elt_count, max_elt_length)
+  return random.choice((os.sep, '')) + _DirElts(max_elt_count, max_elt_length)
 
 def Url(max_elt_count=4, max_elt_length=8):
-  return 'svn://random_host:port/a' + _DirElts(max_elt_count, max_elt_length)
+  return ('svn://random_host:port/a' +
+          _DirElts(max_elt_count, max_elt_length).replace(os.sep, '/'))
 
 def RootDir(max_elt_count=4, max_elt_length=8):
-  return '/' + _DirElts(max_elt_count, max_elt_length)
+  return os.sep + _DirElts(max_elt_count, max_elt_length)
 
 
 class BaseTestCase(unittest.TestCase):
@@ -86,6 +87,8 @@ class BaseTestCase(unittest.TestCase):
     gclient.CaptureSVN = self.mox.CreateMockAnything()
     self._CaptureSVNInfo = gclient.CaptureSVNInfo
     gclient.CaptureSVNInfo = self.mox.CreateMockAnything()
+    self._CaptureSVNStatus = gclient.CaptureSVNStatus
+    gclient.CaptureSVNStatus = self.mox.CreateMockAnything()
     self._FileRead = gclient.FileRead
     gclient.FileRead = self.mox.CreateMockAnything()
     self._FileWrite = gclient.FileWrite
@@ -107,6 +110,7 @@ class BaseTestCase(unittest.TestCase):
   def tearDown(self):
     gclient.CaptureSVN = self._CaptureSVN
     gclient.CaptureSVNInfo = self._CaptureSVNInfo
+    gclient.CaptureSVNStatus = self._CaptureSVNStatus
     gclient.FileRead = self._FileRead
     gclient.FileWrite = self._FileWrite
     gclient.RemoveDirectory = self._RemoveDirectory
@@ -1135,8 +1139,7 @@ class SCMWrapperTestCase(BaseTestCase):
     base_path = os.path.join(self.root_dir, self.relpath)
     gclient.os.path.isdir = self.mox.CreateMockAnything()
     gclient.os.path.isdir(base_path).AndReturn(True)
-    text = "\n"
-    gclient.CaptureSVN(options, ['status'], base_path).AndReturn(text)
+    gclient.CaptureSVNStatus(options, base_path).AndReturn([])
 
     self.mox.ReplayAll()
     scm = gclient.SCMWrapper(url=self.url, root_dir=self.root_dir,
@@ -1151,8 +1154,11 @@ class SCMWrapperTestCase(BaseTestCase):
     base_path = os.path.join(self.root_dir, self.relpath)
     gclient.os.path.isdir = self.mox.CreateMockAnything()
     gclient.os.path.isdir(base_path).AndReturn(True)
-    text = "M      a\nA      b\n"
-    gclient.CaptureSVN(options, ['status'], base_path).AndReturn(text)
+    items = [
+      gclient.FileStatus('a', 'M', ' ', ' '), 
+      gclient.FileStatus('b', 'A', ' ', ' '),
+    ]
+    gclient.CaptureSVNStatus(options, base_path).AndReturn(items)
 
     print >>options.stdout, os.path.join(base_path, 'a')
     print >>options.stdout, os.path.join(base_path, 'b')
