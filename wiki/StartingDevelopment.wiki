@@ -1,36 +1,3 @@
 #summary Getting started with development of gclient.
 
-= Initial checkout = 
-
-`gclient` uses itself to fetch the [http://code.google.com/p/pymox/ mox] object-mocking modules, which it uses in its unit tests.  Here's how you get started:
-
-== For committers ==
-Since trunk/ already contains a .gclient file, you can reuse it directly:
-{{{
-  $ svn co https://gclient.googlecode.com/svn/trunk gclient-dev
-  $ cd gclient-dev
-  $ python gclient/gclient.py update
-}}}
-
-== For non-committers ==
-The default .gclient file uses https. So it's better to just ignore it. The following steps are for users without gclient on their system:
-{{{
-  $ mkdir gclient-dev
-  $ cd gclient-dev
-  $ svn co http://gclient.googlecode.com/svn/trunk/gclient
-  $ python gclient/gclient.py config http://gclient.googlecode.com/svn/trunk/gclient
-  $ python gclient/gclient.py update
-}}}
-
-= Running the unit tests =
-
-The unit tests are all in the `gclient_test.py` script, which you just feed to `python`:
-
-{{{
-  $ python gclient_test.py
-}}}
-
-The unit tests should also work fine when executed from other directories.
-
-= Code reviews =
-Use `gcl.py`. It is available from [http://dev.chromium.org/developers/how-tos/depottools depot_tools] which happens to also include `gclient.py`. Use `gcl.py help` for more information or email gclient@googlegroups.com if you are really stuck.
+http://code.google.com/p/gclient has been superseeded by [http://dev.chromium.org/developers/how-tos/depottools depot_tools] in chromium repository. You'll want to `svn checkout http://src.chromium.org/svn/trunk/tools/depot_tools`
