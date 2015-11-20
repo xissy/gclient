@@ -1,0 +1,1 @@
+http://code.google.com/p/gclient has been superseeded by [depot\_tools](http://dev.chromium.org/developers/how-tos/depottools) in chromium repository. You'll want to `svn checkout http://src.chromium.org/svn/trunk/tools/depot_tools`
